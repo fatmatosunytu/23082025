@@ -430,38 +430,49 @@ if ("rin" %in% names(pheno_aligned))
 stopifnot(nrow(pheno_aligned) == ncol(expr_f))
 stopifnot(identical(rownames(pheno_aligned), colnames(expr_f)))
 
+run_deg_with_covariates <- function(expr, pheno,
+                                    lfc_threshold = 1,
+                                    fdr_threshold = 0.05) {
+  design_cov <- model.matrix(~0 + group + is_melas + age_at_baseline_mounth + sex + rin,
+                             data = pheno)
+  colnames(design_cov) <- make.names(colnames(design_cov))
+  fit_cov  <- limma::lmFit(expr, design_cov)
+  cont_cov <- limma::makeContrasts(Pompe - Control, levels = design_cov)
+  fit2_cov <- limma::eBayes(limma::contrasts.fit(fit_cov, cont_cov))
+  deg_cov  <- limma::topTable(fit2_cov, coef = 1, number = Inf, adjust.method = "BH")
+  deg_cov_sig <- subset(deg_cov, adj.P.Val < fdr_threshold & abs(logFC) >= lfc_threshold)
+  list(deg = deg_cov, deg_sig = deg_cov_sig)
+}
+run_deg_no_melas <- function(expr, pheno,
+                             lfc_threshold = 1,
+                             fdr_threshold = 0.05) {
+  keep_idx <- which(pheno$is_melas == "No")
+  stopifnot(length(keep_idx) > 0)
+  expr_noM <- expr[, keep_idx, drop = FALSE]
+  ph_noM   <- droplevels(pheno[keep_idx, ])
+  ph_noM$group <- factor(ph_noM$group, levels = c("Control","Pompe"))
+  stopifnot(nlevels(ph_noM$group) == 2)
+  design_noM <- model.matrix(~0 + group + age_at_baseline_mounth + sex + rin, data = ph_noM)
+  colnames(design_noM) <- make.names(colnames(design_noM))
+  stopifnot(nrow(design_noM) == ncol(expr_noM))
+  fit_noM  <- limma::lmFit(expr_noM, design_noM)
+  cont_noM <- limma::makeContrasts(Pompe - Control, levels = design_noM)
+  fit2_noM <- limma::eBayes(limma::contrasts.fit(fit_noM, cont_noM))
+  deg_noM    <- limma::topTable(fit2_noM, coef = 1, number = Inf, adjust.method = "BH")
+  deg_noM_sig <- subset(deg_noM, adj.P.Val < fdr_threshold & abs(logFC) >= lfc_threshold)
+  list(deg = deg_noM, deg_sig = deg_noM_sig)
+}
+
 ## ==== A) MELAS kovaryatlı Pompe vs Control (ANA ANALİZ) ====
-design_cov <- model.matrix(~0 + group + is_melas + age_at_baseline_mounth + sex + rin,
-                           data = pheno_aligned)
-colnames(design_cov) <- make.names(colnames(design_cov))
-
-fit_cov  <- limma::lmFit(expr_f, design_cov)
-cont_cov <- limma::makeContrasts(Pompe - Control, levels = design_cov)
-fit2_cov <- limma::eBayes(limma::contrasts.fit(fit_cov, cont_cov))
-
-deg_cov  <- limma::topTable(fit2_cov, coef = 1, number = Inf, adjust.method = "BH")
-deg_cov_sig <- subset(deg_cov, adj.P.Val < 0.05 & abs(logFC) >= 1)
+cov_res <- run_deg_with_covariates(expr_f, pheno_aligned)
+deg_cov <- cov_res$deg
+deg_cov_sig <- cov_res$deg_sig
 
 ## ==== B) MELAS hariç (yalnız Non‑MELAS) Pompe vs Control (DUYARLILIK) ====
-keep_idx <- which(pheno_aligned$is_melas == "No")
-stopifnot(length(keep_idx) > 0)
 
-expr_noM <- expr_f[, keep_idx, drop = FALSE]
-ph_noM   <- droplevels(pheno_aligned[keep_idx, ])
-
-ph_noM$group <- factor(ph_noM$group, levels = c("Control","Pompe"))
-stopifnot(nlevels(ph_noM$group) == 2)
-
-design_noM <- model.matrix(~0 + group + age_at_baseline_mounth + sex + rin, data = ph_noM)
-colnames(design_noM) <- make.names(colnames(design_noM))
-stopifnot(nrow(design_noM) == ncol(expr_noM))
-
-fit_noM  <- limma::lmFit(expr_noM, design_noM)
-cont_noM <- limma::makeContrasts(Pompe - Control, levels = design_noM)
-fit2_noM <- limma::eBayes(limma::contrasts.fit(fit_noM, cont_noM))
-
-deg_noM    <- limma::topTable(fit2_noM, coef = 1, number = Inf, adjust.method = "BH")
-deg_noM_sig <- subset(deg_noM, adj.P.Val < 0.05 & abs(logFC) >= 1)
+sens_res <- run_deg_no_melas(expr_f, pheno_aligned)
+deg_noM <- sens_res$deg
+deg_noM_sig <- sens_res$deg_sig
 
 ## ---- kısa özet ve kayıtlar ----
 message("Kovaryatlı model (MELAS dahil):  FDR<0.05 & |LFC|>=1 -> ", nrow(deg_cov_sig), " gen")
@@ -472,56 +483,6 @@ write.csv(deg_cov,  file.path(results_dir, "DE_all_covariate_MELAS_included.csv"
 write.csv(deg_noM,  file.path(results_dir, "DE_all_noMELAS.csv"))
 write.csv(deg_cov_sig, file.path(results_dir, "DE_sig_covariate_MELAS_included_FDR05_LFC1.csv"))
 write.csv(deg_noM_sig, file.path(results_dir, "DE_sig_noMELAS_FDR05_LFC1.csv"))
-
-
-
-## ==== A) MELAS'ı KOVARYAT OLARAK EKLEYEREK POMPE vs CONTROL ====
-design_cov <- model.matrix(~0 + group + is_melas + age_at_baseline_mounth + sex + rin,
-                           data = pheno_aligned)
-colnames(design_cov) <- make.names(colnames(design_cov))  # güvenlik
-
-common_ids <- intersect(colnames(expr_f), rownames(pheno_aligned))
-expr_f     <- expr_f[, common_ids, drop = FALSE]
-pheno_aligned <- pheno_aligned[common_ids, , drop = FALSE]
-
-
-stopifnot(nrow(pheno_aligned) == ncol(expr_f))
-design_cov <- model.matrix(~0 + group + is_melas + age_at_baseline_mounth + sex + rin,
-                           data = pheno_aligned)
-
-fit_cov  <- limma::lmFit(expr_f, design_cov)
-cont_cov <- limma::makeContrasts(Pompe - Control, levels = design_cov)
-fit2_cov <- limma::eBayes(limma::contrasts.fit(fit_cov, cont_cov))
-
-deg_cov  <- limma::topTable(fit2_cov, coef = 1, number = Inf, adjust.method = "BH")
-# Örnek rapor eşikleri:
-deg_cov_sig <- subset(deg_cov, adj.P.Val < 0.05 & abs(logFC) >= 1)
-
-## ==== B) MELAS HARIÇ (yalnız Non‑MELAS ile) POMPE vs CONTROL ====
-keep_idx <- which(pheno_aligned$is_melas == "No")
-stopifnot(length(keep_idx) > 0)
-
-expr_noM <- expr_f[, keep_idx, drop = FALSE]
-ph_noM   <- droplevels(pheno_aligned[keep_idx, ])
-
-# İki grup olduğundan emin ol
-ph_noM$group <- factor(ph_noM$group, levels = c("Control","Pompe"))
-stopifnot(nlevels(ph_noM$group) == 2)
-
-design_noM <- model.matrix(~0 + group + age_at_baseline_mounth + sex + rin, data = ph_noM)
-colnames(design_noM) <- make.names(colnames(design_noM))
-stopifnot(nrow(design_noM) == ncol(expr_noM))
-
-fit_noM  <- limma::lmFit(expr_noM, design_noM)
-cont_noM <- limma::makeContrasts(Pompe - Control, levels = design_noM)
-fit2_noM <- limma::eBayes(limma::contrasts.fit(fit_noM, cont_noM))
-
-deg_noM  <- limma::topTable(fit2_noM, coef = 1, number = Inf, adjust.method = "BH")
-deg_noM_sig <- subset(deg_noM, adj.P.Val < 0.05 & abs(logFC) >= 1)
-
-## ==== Kısa özet çıktıları ====
-message("Kovaryatlı model:  FDR<0.05 & |LFC|>=1 -> ", nrow(deg_cov_sig), " gen")
-message("Non‑MELAS model:  FDR<0.05 & |LFC|>=1 -> ", nrow(deg_noM_sig), " gen")
 
 # =================== FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF ===================
 
