@@ -39,7 +39,15 @@ if (!requireNamespace("pkgbuild", quietly = TRUE)) install.packages("pkgbuild")
 pkgbuild::has_build_tools(debug = TRUE)
 
 if (!requireNamespace("BiocManager", quietly = TRUE)) install.packages("BiocManager")
-install_and_load(c("GEOquery","affy","limma","Biobase","hgu133plus2.db","R.utils"))
+
+core_packages <- c(
+  "AnnotationDbi", "Biobase", "DOSE", "GEOquery", "GOSemSim", "R.utils",
+  "affy", "annotate", "clusterProfiler", "data.table", "dplyr", "enrichplot",
+  "genefilter", "ggplot2", "ggrepel", "grid", "gridExtra", "hgu133plus2.db",
+  "jsonlite", "limma", "msigdbr", "multiMiR", "org.Hs.eg.db", "pheatmap",
+  "sva", "umap"
+)
+install_and_load(core_packages)
 
   root_dir <- normalizePath(Sys.getenv("POMPE_ROOT", getwd()), winslash = "/")
   meta_dir <- file.path(root_dir, "metadata")
@@ -99,13 +107,6 @@ expr <- exprs(eset)   # QC bloğu 'expr' kullanıyor; bunu tanımla
 
 Biobase::pData(eset) <- pheno_aligned
 validObject(eset)
-
-# ========================== CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC ===============
-
-if (!requireNamespace("here", quietly = TRUE)) install.packages("here")
-if (!requireNamespace("BiocManager", quietly = TRUE)) install.packages("BiocManager")
-install_and_load(c("affy","limma","Biobase","hgu133plus2.db","annotate","genefilter","sva",
-                   "ggplot2","ggrepel","pheatmap","data.table"))
 
 set.seed(20240724)
 
