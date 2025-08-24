@@ -18,6 +18,23 @@
     }
   }
 
+align_samples <- function(cel_files, pheno) {
+  sample_names <- basename(cel_files)
+  pheno_df <- as.data.frame(pheno, stringsAsFactors = FALSE)
+  pheno_keys <- toupper(basename(trimws(pheno_df$filename)))
+  sample_keys <- toupper(sample_names)
+  idx <- match(sample_keys, pheno_keys)
+  if (any(is.na(idx))) {
+    stop("pheno$filename içinde bulunamayan örnek(ler): ",
+         paste(sample_names[is.na(idx)], collapse = ", "))
+  }
+  aligned <- pheno_df[idx, , drop = FALSE]
+  rownames(aligned) <- sample_names
+  stopifnot(nrow(aligned) == length(sample_names))
+  stopifnot(identical(rownames(aligned), sample_names))
+  aligned
+}
+
 if (!requireNamespace("pkgbuild", quietly = TRUE)) install.packages("pkgbuild")
 pkgbuild::has_build_tools(debug = TRUE)
 
@@ -60,50 +77,28 @@ pheno <- pheno[mi, , drop = FALSE]
 
 ## Analiz boyunca tekil ve tutarlı olsun diye pheno'ya kesin sample etiketi yaz
 pheno$sample <- cel_ids
-stopifnot(nrow(pheno) == length(cel_ids))
 
 raw <- ReadAffy(filenames = cel_files)
 eset <- rma(raw)
 sn <- sampleNames(eset)
 expr_matrix <- exprs(eset)
 
-pheno <- pheno[match(cel_ids, pheno$sample), , drop = FALSE]
-stopifnot(identical(pheno$sample, cel_ids))
+pheno_aligned <- align_samples(cel_files, pheno)
 
-pheno$group <- trimws(pheno$group)
-pheno$group <- ifelse(tolower(pheno$group) %in% c("control","healthy","normal"), "Control",
-                      ifelse(grepl("pompe", tolower(pheno$group)), "Pompe", pheno$group))
-stopifnot(all(pheno$group %in% c("Control","Pompe")))
-print(table(pheno$group))
+pheno_aligned$group <- trimws(pheno_aligned$group)
+pheno_aligned$group <- ifelse(tolower(pheno_aligned$group) %in% c("control","healthy","normal"), "Control",
+                              ifelse(grepl("pompe", tolower(pheno_aligned$group)), "Pompe", pheno_aligned$group))
+stopifnot(all(pheno_aligned$group %in% c("Control","Pompe")))
+print(table(pheno_aligned$group))
 
-group <- factor(pheno$group, levels = c("Control","Pompe"))
+group <- factor(pheno_aligned$group, levels = c("Control","Pompe"))
 design_group <- model.matrix(~ 0 + group)
 colnames(design_group) <- levels(group)
 
-pheno_df <- as.data.frame(pheno, stringsAsFactors = FALSE)
-sn0      <- sampleNames(raw)
-sn_key   <- toupper(basename(sn0))
-file_key <- toupper(basename(trimws(pheno_df$filename)))
-
-idx <- match(sn_key, file_key)
-if (any(is.na(idx))) {
-  stop("pheno$filename içinde bulunamayan örnek(ler): ",
-       paste(sn0[is.na(idx)], collapse = ", "))
-}
-pheno_aligned <- pheno_df[idx, , drop = FALSE]
-
-rownames(pheno_aligned) <- sn0
 expr <- exprs(eset)   # QC bloğu 'expr' kullanıyor; bunu tanımla
-
-## (İsteğe bağlı kontrol: isimler birebir mi?)
-stopifnot(identical(sampleNames(eset), rownames(pheno_aligned)))
 
 Biobase::pData(eset) <- pheno_aligned
 validObject(eset)
-
-group <- factor(pheno$group, levels = c("Control","Pompe"))
-design_group <- model.matrix(~ 0 + group)
-colnames(design_group) <- levels(group)
 
 # ========================== CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC ===============
 
