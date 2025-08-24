@@ -288,8 +288,6 @@ tt_gene <- tt_gene[order(tt_gene$SYMBOL, -tt_gene$abs_logFC), ]
 tt_gene <- tt_gene[!duplicated(tt_gene$SYMBOL), ]
 
 stopifnot(exists("tt_all"))
-de_loose <- subset(tt_all, adj.P.Val < 0.1 & abs(logFC) >= 0.5)
-
 deg <- subset(tt_gene, adj.P.Val < 0.1 & abs(logFC) >= 0.5)
 if (nrow(deg) == 0) {
   message("No DEGs found with default thresholds; relaxing to adj.P.Val < 0.2 and |logFC| >= 0.2.")
@@ -315,71 +313,64 @@ de_sig <- deg             # FDR<0.1 gene-level
 expr_use <- expr_cb       # batch/SVA sonrası matris (grafikler için)
 
 # ========================== EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE ===============
-## ==== MELAS bilgisini normalize et (sheet'e uygun) ====
-# pheno_aligned veri çerçevesi sizde zaten var.
 
-# 1) is_melas'ı mantığa çevir (TRUE/Yes/1 -> TRUE; boş/NA -> FALSE)
-to_logical <- function(x){
-  if (is.null(x)) return(rep(FALSE, nrow(pheno_aligned)))
-  if (is.logical(x)) return(replace(x, is.na(x), FALSE))
-  if (is.numeric(x)) return(!is.na(x) & x != 0)
-  y <- tolower(trimws(as.character(x)))
-  y %in% c("true","yes","1","melas")
-}
-melas_from_iscol <- to_logical(pheno_aligned$is_melas)
+# ==== MELAS bayrakları ve diferansiyel analiz için yardımcı fonksiyon ====
+prepare_melas <- function(pheno, expr, results_dir = file.path(getwd(), "results")) {
+  ids <- colnames(expr)
+  if (!"filename" %in% names(pheno))
+    stop("pheno_aligned içinde 'filename' kolonu yok (GSM...CEL).")
 
-# 2) specialcase varsa 1'leri MELAS kabul et
-melas_from_spec <- if ("specialcase" %in% names(pheno_aligned)) {
-  to_logical(pheno_aligned$specialcase)
-} else rep(FALSE, nrow(pheno_aligned))
+  idx <- match(ids, pheno$filename)
+  stopifnot(!any(is.na(idx)))
+  pheno <- pheno[idx, , drop = FALSE]
+  rownames(pheno) <- ids
 
-# 3) Nihai MELAS etiketi: is_melas OR specialcase
-pheno_aligned$MELAS_flag <- melas_from_iscol | melas_from_spec
-# Faktör hali (No/Yes)
-pheno_aligned$is_melas <- factor(ifelse(pheno_aligned$MELAS_flag, "Yes", "No"),
-                                 levels = c("No","Yes"))
+  to_logical <- function(x){
+    if (is.null(x)) return(rep(FALSE, nrow(pheno)))
+    if (is.logical(x)) return(replace(x, is.na(x), FALSE))
+    if (is.numeric(x)) return(!is.na(x) & x != 0)
+    y <- tolower(trimws(as.character(x)))
+    y %in% c("true","yes","1","melas")
+  }
+  melas_flag <- ("is_melas" %in% names(pheno) && to_logical(pheno$is_melas)) |
+                ("specialcase" %in% names(pheno) && to_logical(pheno$specialcase))
 
-# 4) Grup faktörünü sabitle
-pheno_aligned$group <- factor(pheno_aligned$group, levels = c("Control","Pompe"))
+  pheno$MELAS_flag <- melas_flag
+  pheno$is_melas <- factor(ifelse(melas_flag, "Yes","No"), levels = c("No","Yes"))
+  pheno$group <- factor(pheno$group, levels = c("Control","Pompe"))
+  if ("age_at_baseline_mounth" %in% names(pheno))
+    pheno$age_at_baseline_mounth <- suppressWarnings(as.numeric(pheno$age_at_baseline_mounth))
+  if ("sex" %in% names(pheno))
+    pheno$sex <- factor(pheno$sex)
+  if ("rin" %in% names(pheno))
+    pheno$rin <- suppressWarnings(as.numeric(pheno$rin))
 
-# 5) Kovaryatlar: yaş/ay, cinsiyet, RIN (varsa)
-# (Sheet’te age_at_baseline sayısal görünüyor; değilse numeric’e zorla)
-if ("age_at_baseline_mounth" %in% names(pheno_aligned)) {
-  pheno_aligned$age_at_baseline_mounth <- suppressWarnings(as.numeric(pheno_aligned$age_at_baseline_mounth))
-}
-if ("sex" %in% names(pheno_aligned)) {
-  pheno_aligned$sex <- factor(pheno_aligned$sex)  # "M"/"F"
-}
-if ("rin" %in% names(pheno_aligned)) {
-  pheno_aligned$rin <- suppressWarnings(as.numeric(pheno_aligned$rin))
-}
-
-
-
-
-
-###########################  BURAYA BAK BUNU EKLEDİN  ###############################
-
-## ==== (EKLE) MELAS bilgisini normalize et ve ID’leri hizala ====
-
-# 0) pheno_aligned rowname'lerini expr_f ID'lerine hizala (ID'ler GSM...CEL; pheno'da 'filename')
-ids <- colnames(expr_f)
-if (!"filename" %in% names(pheno_aligned))
-  stop("pheno_aligned içinde 'filename' kolonu yok (GSM...CEL).")
-
-idx <- match(ids, pheno_aligned$filename)
-stopifnot(!any(is.na(idx)))     # hepsi bulunmalı
-pheno_aligned <- pheno_aligned[idx, , drop = FALSE]
-rownames(pheno_aligned) <- ids  # rowname = expr_f kolon adları ile aynı
-
-# 1) is_melas / specialcase -> tek bir mantıksal bayrak
-to_logical <- function(x){
-  if (is.null(x)) return(rep(FALSE, nrow(pheno_aligned)))
-  if (is.logical(x)) return(replace(x, is.na(x), FALSE))
-  if (is.numeric(x)) return(!is.na(x) & x != 0)
-  y <- tolower(trimws(as.character(x)))
-  y %in% c("true","yes","1","melas")
-}
+  run_deg_with_covariates <- function(expr, pheno, lfc_threshold = 1, fdr_threshold = 0.05) {
+    design_cov <- model.matrix(~0 + group + is_melas + age_at_baseline_mounth + sex + rin, data = pheno)
+    colnames(design_cov) <- make.names(colnames(design_cov))
+    fit_cov  <- limma::lmFit(expr, design_cov)
+    cont_cov <- limma::makeContrasts(Pompe - Control, levels = design_cov)
+    fit2_cov <- limma::eBayes(limma::contrasts.fit(fit_cov, cont_cov))
+    deg_cov  <- limma::topTable(fit2_cov, coef = 1, number = Inf, adjust.method = "BH")
+    deg_cov_sig <- subset(deg_cov, adj.P.Val < fdr_threshold & abs(logFC) >= lfc_threshold)
+    list(deg = deg_cov, deg_sig = deg_cov_sig)
+  }
+  run_deg_no_melas <- function(expr, pheno, lfc_threshold = 1, fdr_threshold = 0.05) {
+    keep_idx <- which(pheno$is_melas == "No")
+    stopifnot(length(keep_idx) > 0)
+    expr_noM <- expr[, keep_idx, drop = FALSE]
+    ph_noM   <- droplevels(pheno[keep_idx, ])
+    ph_noM$group <- factor(ph_noM$group, levels = c("Control","Pompe"))
+    stopifnot(nlevels(ph_noM$group) == 2)
+    design_noM <- model.matrix(~0 + group + age_at_baseline_mounth + sex + rin, data = ph_noM)
+    colnames(design_noM) <- make.names(colnames(design_noM))
+    fit_noM  <- limma::lmFit(expr_noM, design_noM)
+    cont_noM <- limma::makeContrasts(Pompe - Control, levels = design_noM)
+    fit2_noM <- limma::eBayes(limma::contrasts.fit(fit_noM, cont_noM))
+    deg_noM    <- limma::topTable(fit2_noM, coef = 1, number = Inf, adjust.method = "BH")
+    deg_noM_sig <- subset(deg_noM, adj.P.Val < fdr_threshold & abs(logFC) >= lfc_threshold)
+    list(deg = deg_noM, deg_sig = deg_noM_sig)
+  }
 
 melas_flag <- ( "is_melas"    %in% names(pheno_aligned) && to_logical(pheno_aligned$is_melas) ) |
   ( "specialcase" %in% names(pheno_aligned) && to_logical(pheno_aligned$specialcase) )
