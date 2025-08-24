@@ -589,9 +589,6 @@ message("Plots written to: ", plot_dir)
 
 # ========================= HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH=========================
 
-if (!requireNamespace("BiocManager", quietly = TRUE)) install.packages("BiocManager")
-install_and_load(c("msigdbr", "clusterProfiler", "org.Hs.eg.db"))
-
   gsea_dir <- file.path(root_dir, "results", "deg")
 dir.create(gsea_dir, showWarnings = FALSE, recursive = TRUE)
 
@@ -683,9 +680,6 @@ if (exists("tt_gene_s")) {
   }
 }
 
-install_and_load("gridExtra")
-library(grid)
-
 if (exists("ph")) {
     pdf(file.path(root_dir,"results","plots","volcano_heatmap_Fig1.pdf"), width=16, height=8, family="Times")
   grid.arrange(
@@ -698,14 +692,6 @@ if (exists("ph")) {
 
 # ======================= ENRICHMENT: GO / KEGG / GSEA + MELAS =======================
 # Ön-koşullar: root_dir, tt_all, tt_gene, deg, groups, expr_cb/expr_matrix
-if (!requireNamespace("BiocManager", quietly = TRUE)) install.packages("BiocManager")
-for (p in c("clusterProfiler","org.Hs.eg.db","enrichplot","DOSE","GOSemSim")) {
-  if (!requireNamespace(p, quietly = TRUE)) BiocManager::install(p, ask = FALSE, update = FALSE)
-}
-for (p in c("ggplot2","ggrepel","jsonlite")) if (!requireNamespace(p, quietly = TRUE)) install.packages(p)
-
-library(clusterProfiler); library(org.Hs.eg.db); library(enrichplot)
-library(DOSE); library(GOSemSim); library(ggplot2); library(ggrepel); library(jsonlite)
 
 ## 0) Klasörler
   enrich_dir <- file.path(root_dir, "results", "enrichment"); dir.create(enrich_dir, recursive = TRUE, showWarnings = FALSE)
@@ -857,9 +843,7 @@ writeLines(sum_lines, file.path(enrich_dir,"_ENRICHMENT_SUMMARY.txt"))
 # Kullanılan nesneler: tt_gene, deg, pheno_aligned (MELAS için), groups
 # Çıktılar: results/miRNA_analysis/ altına CSV/PNG/JSON/TXT
 
-# ---- Paketler
-if (!requireNamespace("BiocManager", quietly = TRUE)) install.packages("BiocManager")
-install_and_load(c("multiMiR","dplyr","ggplot2","ggrepel","jsonlite"))
+# ---- Paketler (loaded above)
 
 # ---- Klasörler + meta
   out_dir  <- file.path(root_dir, "results", "miRNA_analysis")
@@ -1087,8 +1071,7 @@ if (has_melas) {
 
 # ====================== miRNA VIS (multiMiR; FAIR; ayrı DB'ler) ======================
 
-if (!requireNamespace("BiocManager", quietly = TRUE)) install.packages("BiocManager")
-install_and_load(c("multiMiR","ggplot2","dplyr","ggrepel","jsonlite","umap"))
+## Packages loaded above
 
   mir_dir <- file.path(root_dir, "results", "miRNA_analysis")
 dir.create(mir_dir, recursive = TRUE, showWarnings = FALSE)
