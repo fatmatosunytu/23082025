@@ -503,7 +503,7 @@ if (exists("tt_all_s") && exists("deg_sens")) {
     theme_bw(14) +
     labs(title = "Volcano (Pompe vs Control) — MELAS excluded",
          x = "log2 Fold Change", y = "-log10(FDR)")
-  ggsave(file.path(plot_dir, "volcano_noMELAS.png"), p_s, width = 8, height = 6, dpi = 300)
+  ggsave(file.path(plot_dir, "volcano_noMELAS_main.png"), p_s, width = 8, height = 6, dpi = 300)
 }
 
 stopifnot(exists("tt_gene"), exists("deg"))
@@ -539,7 +539,7 @@ if (TOP_N >= 1) {
                              clustering_distance_cols = "correlation",
                              clustering_method = "average",
                              main = sprintf("Top %d DEG (z-score by gene) – Pompe vs Control", nrow(sub_expr_z)),
-                             filename = file.path(plot_dir, "heatmap_top_FDR.png")
+                       filename = file.path(plot_dir, "heatmap_top_FDR_main.png")
     )
   } else if (nrow(sub_expr_z) == 1) {
     ph <- pheatmap::pheatmap(sub_expr_z,
@@ -547,7 +547,7 @@ if (TOP_N >= 1) {
                              show_rownames = TRUE, show_colnames = TRUE,
                              cluster_rows = FALSE, cluster_cols = TRUE,
                              main = "Only 1 gene passed filter (no row clustering)",
-                             filename = file.path(plot_dir, "heatmap_top_FDR.png")
+                       filename = file.path(plot_dir, "heatmap_top_FDR_main.png")
     )
   } else {
     message("Heatmap atlandı: seçilen genlerden hiçbiri ifade matrisinde bulunamadı (probe vs gene adı?).")
