@@ -287,7 +287,6 @@ tt_gene <- tt_gene[order(tt_gene$SYMBOL, -tt_gene$abs_logFC), ]
 tt_gene <- tt_gene[!duplicated(tt_gene$SYMBOL), ]
 
 stopifnot(exists("tt_all"))
-de_all <- tt_all
 de_loose <- subset(tt_all, adj.P.Val < 0.1 & abs(logFC) >= 0.5)
 
 deg <- subset(tt_gene, adj.P.Val < 0.1 & abs(logFC) >= 0.5)
@@ -468,7 +467,7 @@ volc_main <- within(tt_all, {
 lab_main <- head(volc_main[order(volc_main$adj.P.Val, -abs(volc_main$logFC)), ], 15)
 lab_main$SYMBOL[is.na(lab_main$SYMBOL) | lab_main$SYMBOL == ""] <- rownames(lab_main)[is.na(lab_main$SYMBOL) | lab_main$SYMBOL == ""]
 
-p_main <- ggplot(volc_main, aes(x = logFC, y = negLog10FDR)) +
+volc <- ggplot(volc_main, aes(x = logFC, y = negLog10FDR)) +
   geom_point(aes(shape = dir), alpha = 0.6) +
   geom_hline(yintercept = -log10(0.05), linetype = 2) +
   geom_vline(xintercept = c(-1, 1), linetype = 3) +
@@ -480,7 +479,7 @@ p_main <- ggplot(volc_main, aes(x = logFC, y = negLog10FDR)) +
   theme_bw(14) +
   labs(title = "Volcano (Pompe vs Control) — Main",
        x = "log2 Fold Change", y = "-log10(FDR)")
-ggsave(file.path(plot_dir, "volcano_main.png"), p_main, width = 8, height = 6, dpi = 300)
+ggsave(file.path(plot_dir, "volcano_main.png"), volc, width = 8, height = 6, dpi = 300)
 
 if (exists("tt_all_s") && exists("deg_sens")) {
   volc_s <- within(tt_all_s, {
@@ -533,22 +532,22 @@ if (TOP_N >= 1) {
   sub_expr_z <- t(scale(t(sub_expr)))  # satır bazlı z-score
   
   if (nrow(sub_expr_z) >= 2) {
-    pheatmap::pheatmap(sub_expr_z,
-                       annotation_col = ann_col,
-                       show_rownames = TRUE, show_colnames = TRUE,
-                       clustering_distance_rows = "correlation",
-                       clustering_distance_cols = "correlation",
-                       clustering_method = "average",
-                       main = sprintf("Top %d DEG (z-score by gene) – Pompe vs Control", nrow(sub_expr_z)),
-                       filename = file.path(plot_dir, "heatmap_top_FDR.png")
+    ph <- pheatmap::pheatmap(sub_expr_z,
+                             annotation_col = ann_col,
+                             show_rownames = TRUE, show_colnames = TRUE,
+                             clustering_distance_rows = "correlation",
+                             clustering_distance_cols = "correlation",
+                             clustering_method = "average",
+                             main = sprintf("Top %d DEG (z-score by gene) – Pompe vs Control", nrow(sub_expr_z)),
+                             filename = file.path(plot_dir, "heatmap_top_FDR.png")
     )
   } else if (nrow(sub_expr_z) == 1) {
-    pheatmap::pheatmap(sub_expr_z,
-                       annotation_col = ann_col,
-                       show_rownames = TRUE, show_colnames = TRUE,
-                       cluster_rows = FALSE, cluster_cols = TRUE,
-                       main = "Only 1 gene passed filter (no row clustering)",
-                       filename = file.path(plot_dir, "heatmap_top_FDR.png")
+    ph <- pheatmap::pheatmap(sub_expr_z,
+                             annotation_col = ann_col,
+                             show_rownames = TRUE, show_colnames = TRUE,
+                             cluster_rows = FALSE, cluster_cols = TRUE,
+                             main = "Only 1 gene passed filter (no row clustering)",
+                             filename = file.path(plot_dir, "heatmap_top_FDR.png")
     )
   } else {
     message("Heatmap atlandı: seçilen genlerden hiçbiri ifade matrisinde bulunamadı (probe vs gene adı?).")
@@ -587,136 +586,6 @@ if (exists("tt_gene_s") && exists("expr_sens") && exists("ph_sens")) {
 }
 
 message("Plots written to: ", plot_dir)
-
-# =================== GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG =====================
-
-plot_dir <- file.path(root, "results", "plots")
-deg_dir  <- file.path(root, "results", "deg")
-dir.create(plot_dir, recursive = TRUE, showWarnings = FALSE)
-dir.create(deg_dir,  recursive = TRUE, showWarnings = FALSE)
-
-suppressPackageStartupMessages(
-  install_and_load(c("AnnotationDbi", "hgu133plus2.db", "ggplot2", "ggrepel", "pheatmap"))
-)
-
-if (!exists("tt_all")) {
-  stopifnot(exists("fit2"))
-  tt_all <- limma::topTable(fit2, coef = 1, number = Inf, adjust.method = "BH")
-}
-
-if (!"SYMBOL" %in% names(tt_all) || any(is.na(tt_all$SYMBOL))) {
-  probes <- rownames(tt_all)
-  sym  <- AnnotationDbi::mapIds(hgu133plus2.db, keys = probes,
-                                keytype = "PROBEID", column = "SYMBOL",
-                                multiVals = "first")
-  gnm  <- AnnotationDbi::mapIds(hgu133plus2.db, keys = probes,
-                                keytype = "PROBEID", column = "GENENAME",
-                                multiVals = "first")
-  
-  #if (!"SYMBOL" %in% names(tt_all))   tt_all$SYMBOL   <- NA_character_
-  #if (!"GENENAME" %in% names(tt_all)) tt_all$GENENAME <- NA_character_
-  
-  tt_all$SYMBOL[rownames(tt_all)  ]   <- sym[rownames(tt_all)]
-  tt_all$GENENAME[rownames(tt_all)]   <- gnm[rownames(tt_all)]
-}
-
-if (!exists("tt_gene")) {
-  tt_all$abs_logFC <- abs(tt_all$logFC)
-  tt_gene <- tt_all[!is.na(tt_all$SYMBOL) & nzchar(tt_all$SYMBOL), ]
-  tt_gene <- tt_gene[order(tt_gene$SYMBOL, -tt_gene$abs_logFC), ]
-  tt_gene <- tt_gene[!duplicated(tt_gene$SYMBOL), ]
-}
-
-DEG_FDR_CUTOFF <- 0.1
-if (!exists("deg")) {
-  deg <- subset(tt_gene, adj.P.Val < DEG_FDR_CUTOFF)
-}
-
-groups <- droplevels(factor(pheno_aligned$group, levels = c("Control","Pompe")))
-note <- sprintf("DEG (FDR<%.2g): %d gene(s). Sample sizes — Pompe: %d, Control: %d.",
-                DEG_FDR_CUTOFF, nrow(deg),
-                sum(groups == "Pompe"), sum(groups == "Control"))
-writeLines(note, file.path(deg_dir, "_DEG_summary.txt"))
-
-LFC_VISUAL_THR <- 1
-stopifnot(all(c("logFC","adj.P.Val","SYMBOL") %in% names(tt_gene)))
-labelN <- head(tt_gene[order(tt_gene$adj.P.Val), c("SYMBOL","logFC","adj.P.Val")], 20)
-labelN <- labelN[!is.na(labelN$SYMBOL) & nzchar(labelN$SYMBOL), ]
-
-volc <- ggplot(tt_gene, aes(x = logFC, y = -log10(adj.P.Val))) +
-  geom_point(aes(color = adj.P.Val < DEG_FDR_CUTOFF), alpha = 0.75, size = 1.8) +
-  geom_vline(xintercept = c(-LFC_VISUAL_THR, LFC_VISUAL_THR), linetype = "dashed") +
-  geom_hline(yintercept = -log10(DEG_FDR_CUTOFF), linetype = "dashed") +
-  scale_color_manual(values = c("grey70","tomato"), labels = c("FDR ≥ cutoff","FDR < cutoff")) +
-  labs(title = "Volcano (FDR-based)", x = expression(log[2]*"FC"), y = expression(-log[10]*"FDR"), color = NULL) +
-  theme_bw(base_size = 12) +
-  ggrepel::geom_text_repel(
-    data = labelN,
-    aes(x = logFC, y = -log10(adj.P.Val), label = SYMBOL),
-    size = 3, max.overlaps = 200
-  )
-ggsave(file.path(plot_dir, "volcano_FDR_consistent.png"), volc, width = 8, height = 6, dpi = 300)
-
-TOP_N <- min(50, nrow(deg))
-if (TOP_N >= 2) {
-  # temsilci probe = tt_gene’deki satır isimleri
-  reps <- rownames(tt_gene)[match(head(deg$SYMBOL[order(deg$adj.P.Val)], TOP_N), tt_gene$SYMBOL)]
-  # ifade matrisi: batch/SVA sonrası olanı tercih et
-  expr_plot <- if (exists("expr_use")) expr_use else if (exists("expr_cb")) expr_cb else expr_f
-  sub_expr  <- expr_plot[intersect(rownames(expr_plot), reps), , drop = FALSE]
-  rownames(sub_expr) <- tt_gene$SYMBOL[match(rownames(sub_expr), rownames(tt_gene))]
-  
-  ann_col <- data.frame(Group = pheno_aligned$group, row.names = rownames(pheno_aligned))
-  if ("batch" %in% names(pheno_aligned)) ann_col$Batch <- pheno_aligned$batch
-  if ("is_melas" %in% names(pheno_aligned)) ann_col$MELAS <- ifelse(pheno_aligned$is_melas, "Yes","No")
-  
-  pheatmap(sub_expr, scale = "row",
-           annotation_col = ann_col,
-           show_rownames = TRUE, show_colnames = TRUE,
-           clustering_distance_rows = "correlation",
-           clustering_distance_cols = "correlation",
-           clustering_method = "average",
-           main = sprintf("Top %d DEG (FDR<0.1)", TOP_N),
-           filename = file.path(plot_dir, "heatmap_top_FDR.png"))
-}
-
-if (exists("tt_all_s") && exists("tt_gene_s") && exists("deg_sens")) {
-  # Volcano no-MELAS
-  labelNs <- head(tt_gene_s[order(tt_gene_s$adj.P.Val), c("SYMBOL","logFC","adj.P.Val")], 20)
-  labelNs <- labelNs[!is.na(labelNs$SYMBOL) & nzchar(labelNs$SYMBOL), ]
-  volc_s <- ggplot(tt_gene_s, aes(x = logFC, y = -log10(adj.P.Val))) +
-    geom_point(aes(color = adj.P.Val < DEG_FDR_CUTOFF), alpha = 0.75, size = 1.8) +
-    geom_vline(xintercept = c(-LFC_VISUAL_THR, LFC_VISUAL_THR), linetype = "dashed") +
-    geom_hline(yintercept = -log10(DEG_FDR_CUTOFF), linetype = "dashed") +
-    scale_color_manual(values = c("grey70","tomato"), labels = c("FDR ≥ cutoff","FDR < cutoff")) +
-    labs(title = "Volcano (no-MELAS)", x = expression(log[2]*"FC"), y = expression(-log[10]*"FDR"), color = NULL) +
-    theme_bw(base_size = 12) +
-    ggrepel::geom_text_repel(
-      data = labelNs,
-      aes(x = logFC, y = -log10(adj.P.Val), label = SYMBOL), size = 3, max.overlaps = 200)
-  ggsave(file.path(plot_dir, "volcano_noMELAS.png"), volc_s, width = 8, height = 6, dpi = 300)
-  
-  TOP_Ns <- min(50, nrow(deg_sens))
-  if (TOP_Ns >= 2 && exists("expr_sens") && exists("ph_sens")) {
-    reps_s <- rownames(tt_gene_s)[match(head(deg_sens$SYMBOL[order(deg_sens$adj.P.Val)], TOP_Ns), tt_gene_s$SYMBOL)]
-    sub_expr_s <- expr_sens[intersect(rownames(expr_sens), reps_s), , drop = FALSE]
-    rownames(sub_expr_s) <- tt_gene_s$SYMBOL[match(rownames(sub_expr_s), rownames(tt_gene_s))]
-    
-    ann_col_s <- data.frame(Group = ph_sens$group, row.names = rownames(ph_sens))
-    if ("batch" %in% names(ph_sens)) ann_col_s$Batch <- ph_sens$batch
-    
-    pheatmap(sub_expr_s, scale = "row",
-             annotation_col = ann_col_s,
-             show_rownames = TRUE, show_colnames = TRUE,
-             clustering_distance_rows = "correlation",
-             clustering_distance_cols = "correlation",
-             clustering_method = "average",
-             main = sprintf("Top %d DEG (no-MELAS)", TOP_Ns),
-             filename = file.path(plot_dir, "heatmap_top_FDR_noMELAS.png"))
-  }
-}
-
-message("Volcano & Heatmap dosyaları yazıldı: ", plot_dir)
 
 # ========================= HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH=========================
 
@@ -839,8 +708,9 @@ library(clusterProfiler); library(org.Hs.eg.db); library(enrichplot)
 library(DOSE); library(GOSemSim); library(ggplot2); library(ggrepel); library(jsonlite)
 
 ## 0) Klasörler
-enrich_dir <- file.path(root, "results", "enrichment"); dir.create(enrich_dir, recursive = TRUE, showWarnings = FALSE)
-plot_dir   <- file.path(root, "results", "plots");       dir.create(plot_dir,   recursive = TRUE, showWarnings = FALSE)
+enrich_dir <- file.path(root, "results", "enrichment")
+dir.create(enrich_dir, recursive = TRUE, showWarnings = FALSE)
+dir.create(plot_dir,   recursive = TRUE, showWarnings = FALSE)
 
 ## 1) Girdi listeleri (main analiz)
 stopifnot(exists("tt_gene"), exists("deg"))
