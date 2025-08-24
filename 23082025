@@ -704,6 +704,7 @@ if (exists("ph")) {
 
 ## 1) Girdi listeleri (main analiz)
 stopifnot(exists("tt_gene"), exists("deg"))
+if (nrow(deg) == 0) stop("No DEGs detected; adjust thresholds.")
 sig_symbols      <- unique(na.omit(as.character(deg$SYMBOL)))
 universe_symbols <- unique(na.omit(as.character(tt_gene$SYMBOL)))
 
@@ -858,6 +859,7 @@ set.seed(20240724)
 # ---- Girdiler (FAIR kontroller)
 stopifnot(exists("tt_gene"), "SYMBOL" %in% names(tt_gene))
 stopifnot(exists("deg"),     "SYMBOL" %in% names(deg))
+if (nrow(deg) == 0) stop("No DEGs detected; adjust thresholds.")
 universe_symbols <- unique(tt_gene$SYMBOL[!is.na(tt_gene$SYMBOL) & nzchar(tt_gene$SYMBOL)])
 sig_genes        <- unique(deg$SYMBOL[!is.na(deg$SYMBOL) & nzchar(deg$SYMBOL)])
 
