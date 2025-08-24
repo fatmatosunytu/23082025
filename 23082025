@@ -148,31 +148,7 @@ eset <- rma(raw)
 expr <- exprs(eset)   # QC bloğu 'expr' kullanıyor; bunu tanımla
 # ========================== BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB ===============
 
-gsm_from_sn <- sub(".*(GSM[0-9]+).*", "\\1", sn, ignore.case = TRUE)
-
-rown_gsm <- rownames(pheno)
-if (!all(grepl('^GSM[0-9]+$', rown_gsm))) {
-  if ('geo_accession' %in% colnames(pheno)) rown_gsm <- pheno$geo_accession
-}
-
-sn_files <- basename(sampleNames(eset))
-pheno$filename <- trimws(pheno$filename)
-
-normalize_filename <- function(x) toupper(gsub("\\\\", "/", basename(x)))
-sn_norm    <- normalize_filename(sn_files)
-pheno_norm <- normalize_filename(pheno$filename)
-if (exists("norm", inherits = FALSE)) rm(norm)
-
-idx <- match(sn_norm, pheno_norm)
-if (any(is.na(idx))) {
-  missing <- sn_files[is.na(idx)]
-  stop('Sample(s) in expression but not in pheno$filename: ',
-       paste(missing, collapse = ', '))
-}
-pheno_aligned <- pheno[idx, , drop = FALSE]
-rownames(pheno_aligned) <- sampleNames(eset)
-
-stopifnot(ncol(expr) == nrow(pheno_aligned))
+pheno_aligned <- align_samples(cel_files, pheno)
 
 pheno_aligned$group <- trimws(pheno_aligned$group)
 pheno_aligned$group <- ifelse(tolower(pheno_aligned$group) %in% c('control','healthy','normal'), 'Control',
@@ -180,14 +156,6 @@ pheno_aligned$group <- ifelse(tolower(pheno_aligned$group) %in% c('control','hea
 stopifnot(all(pheno_aligned$group %in% c('Control','Pompe')))
 groups <- factor(pheno_aligned$group, levels = c('Control','Pompe'))
 design_group <- model.matrix(~ 0 + groups); colnames(design_group) <- levels(groups)
-
-## (İsteğe bağlı kontrol: isimler birebir mi?)
-stopifnot(identical(sampleNames(eset), rownames(pheno_aligned)))
-
-#rownames(pheno_aligned)
-#sampleNames(eset) <- rownames(pheno_aligned)
-#Biobase::pData(eset) <- pheno_aligned
-#protocolData(eset) <- AnnotatedDataFrame(data.frame(row.names = sampleNames(eset)))
 #validObject(eset)
 
 
