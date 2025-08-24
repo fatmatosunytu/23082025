@@ -41,8 +41,8 @@ pkgbuild::has_build_tools(debug = TRUE)
 if (!requireNamespace("BiocManager", quietly = TRUE)) install.packages("BiocManager")
 install_and_load(c("GEOquery","affy","limma","Biobase","hgu133plus2.db","R.utils"))
 
-base_dir <- normalizePath(Sys.getenv("POMPE_ROOT", "."), winslash = "/")
-meta_dir <- file.path(base_dir, "metadata")
+  root_dir <- normalizePath(Sys.getenv("POMPE_ROOT", getwd()), winslash = "/")
+  meta_dir <- file.path(root_dir, "metadata")
 stopifnot(dir.exists(meta_dir))
 cel_files <- list.files(meta_dir, pattern = "\\.CEL$",
                         full.names = TRUE, ignore.case = TRUE)
@@ -109,16 +109,15 @@ install_and_load(c("affy","limma","Biobase","hgu133plus2.db","annotate","genefil
 
 set.seed(20240724)
 
-root <- normalizePath(Sys.getenv("POMPE_ROOT", "."), winslash = "/")
-meta_dir <- file.path(root, "metadata")
-stopifnot(dir.exists(meta_dir))
+  meta_dir <- file.path(root_dir, "metadata")
+  stopifnot(dir.exists(meta_dir))
 
-dir.create(file.path(root, "results", "qc"),    recursive = TRUE, showWarnings = FALSE)
-dir.create(file.path(root, "results", "deg"),   recursive = TRUE, showWarnings = FALSE)
-dir.create(file.path(root, "results", "plots"), recursive = TRUE, showWarnings = FALSE)
-dir.create(file.path(root, "logs"),             recursive = TRUE, showWarnings = FALSE)
+  dir.create(file.path(root_dir, "results", "qc"),    recursive = TRUE, showWarnings = FALSE)
+  dir.create(file.path(root_dir, "results", "deg"),   recursive = TRUE, showWarnings = FALSE)
+  dir.create(file.path(root_dir, "results", "plots"), recursive = TRUE, showWarnings = FALSE)
+  dir.create(file.path(root_dir, "logs"),             recursive = TRUE, showWarnings = FALSE)
 
-writeLines(c(capture.output(sessionInfo())), file.path(root, "logs", "session_info.txt"))
+  writeLines(c(capture.output(sessionInfo())), file.path(root_dir, "logs", "session_info.txt"))
 
 pheno <- data.table::fread(file.path(meta_dir, "pheno.csv"), na.strings = c("", "NA", "NaN"))
 
@@ -192,7 +191,7 @@ keep <- iqr > thr
 expr_f <- expr[keep, ]
 message("Low-expression removed: ", sum(!keep), " probes (", round(mean(!keep)*100,2), "%)")
 write.csv(data.frame(probe=rownames(expr)[!keep], IQR=iqr[!keep]),
-          file.path(root,"results","qc","low_expression_removed.csv"), row.names = FALSE)
+            file.path(root_dir,"results","qc","low_expression_removed.csv"), row.names = FALSE)
 
 # PCA ile QC (FAIR: şeffaflık)
 pca <- prcomp(t(expr_f), scale. = TRUE)
@@ -201,7 +200,7 @@ pca_df <- data.frame(pca$x[,1:2], group = pheno_aligned$group,
 gg <- ggplot(pca_df, aes(PC1, PC2, color = group, shape = factor(batch), label = sample)) +
   geom_point(size=3) + ggrepel::geom_text_repel(size=2.8) +
   theme_bw(14) + labs(title="PCA – RMA + IQR filtre", shape = "batch")
-ggplot2::ggsave(file.path(root,"results","qc","pca_groups_batches.png"), gg, width=9, height=7)
+  ggplot2::ggsave(file.path(root_dir,"results","qc","pca_groups_batches.png"), gg, width=9, height=7)
 
 # ========================== DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD ===============
 
@@ -293,9 +292,9 @@ deg <- subset(tt_gene, adj.P.Val < 0.1 & abs(logFC) >= 0.5)
 up_n   <- sum(deg$logFC > 0, na.rm = TRUE)
 down_n <- sum(deg$logFC < 0, na.rm = TRUE)
 
-write.csv(tt_all,  file.path(root,"results","deg","all_probes_BH.csv"))
-write.csv(tt_gene, file.path(root,"results","deg","collapsed_by_gene.csv"), row.names = TRUE)
-write.csv(deg,     file.path(root,"results","deg","DEG_FDR_lt_0.1.csv"), row.names = TRUE)
+  write.csv(tt_all,  file.path(root_dir,"results","deg","all_probes_BH.csv"))
+  write.csv(tt_gene, file.path(root_dir,"results","deg","collapsed_by_gene.csv"), row.names = TRUE)
+  write.csv(deg,     file.path(root_dir,"results","deg","DEG_FDR_lt_0.1.csv"), row.names = TRUE)
 
 cat("\n=== ÖZET ===\n")
 cat("ComBat: ", if (do_combat) "APPLIED" else "SKIPPED", "\n")
@@ -449,7 +448,7 @@ write.csv(deg_noM_sig, file.path(results_dir, "DE_sig_noMELAS_FDR05_LFC1.csv"))
 
 # =================== FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF ===================
 
-plot_dir <- file.path(root, "results", "plots")
+  plot_dir <- file.path(root_dir, "results", "plots")
 dir.create(plot_dir, showWarnings = FALSE, recursive = TRUE)
 
 expr_plot <- if (exists("expr_use")) expr_use else if (exists("expr_cb")) expr_cb else expr_f
