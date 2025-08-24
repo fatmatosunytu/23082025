@@ -349,22 +349,6 @@ prepare_melas <- function(pheno, expr, results_dir = file.path(getwd(), "results
        deg_cov = deg_cov, deg_cov_sig = deg_cov_sig,
        deg_noM = deg_noM, deg_noM_sig = deg_noM_sig)
   }
-  run_deg_no_melas <- function(expr, pheno, lfc_threshold = 1, fdr_threshold = 0.05) {
-    keep_idx <- which(pheno$is_melas == "No")
-    stopifnot(length(keep_idx) > 0)
-    expr_noM <- expr[, keep_idx, drop = FALSE]
-    ph_noM   <- droplevels(pheno[keep_idx, ])
-    ph_noM$group <- factor(ph_noM$group, levels = c("Control","Pompe"))
-    stopifnot(nlevels(ph_noM$group) == 2)
-    design_noM <- model.matrix(~0 + group + age_at_baseline_mounth + sex + rin, data = ph_noM)
-    colnames(design_noM) <- make.names(colnames(design_noM))
-    fit_noM  <- limma::lmFit(expr_noM, design_noM)
-    cont_noM <- limma::makeContrasts(Pompe - Control, levels = design_noM)
-    fit2_noM <- limma::eBayes(limma::contrasts.fit(fit_noM, cont_noM))
-    deg_noM    <- limma::topTable(fit2_noM, coef = 1, number = Inf, adjust.method = "BH")
-    deg_noM_sig <- subset(deg_noM, adj.P.Val < fdr_threshold & abs(logFC) >= lfc_threshold)
-    list(deg = deg_noM, deg_sig = deg_noM_sig)
-  }
 
 melas_flag <- ( "is_melas"    %in% names(pheno_aligned) && to_logical(pheno_aligned$is_melas) ) |
   ( "specialcase" %in% names(pheno_aligned) && to_logical(pheno_aligned$specialcase) )
@@ -417,15 +401,13 @@ deg_cov_sig <- melas_res$deg_cov_sig
 deg_noM    <- melas_res$deg_noM
 deg_noM_sig <- melas_res$deg_noM_sig
 
-## ---- kısa özet ve kayıtlar ----
-message("Kovaryatlı model (MELAS dahil):  FDR<0.05 & |LFC|>=1 -> ", nrow(deg_cov_sig), " gen")
-message("Non‑MELAS model:               FDR<0.05 & |LFC|>=1 -> ", nrow(deg_noM_sig), " gen")
-
 if (!exists("results_dir")) results_dir <- file.path(getwd(), "results")
-write.csv(deg_cov,  file.path(results_dir, "DE_all_covariate_MELAS_included.csv"))
-write.csv(deg_noM,  file.path(results_dir, "DE_all_noMELAS.csv"))
-write.csv(deg_cov_sig, file.path(results_dir, "DE_sig_covariate_MELAS_included_FDR05_LFC1.csv"))
-write.csv(deg_noM_sig, file.path(results_dir, "DE_sig_noMELAS_FDR05_LFC1.csv"))
+melas_out <- prepare_melas(pheno_aligned, expr_f, results_dir)
+pheno_aligned <- melas_out$pheno_aligned
+deg_cov       <- melas_out$deg_cov
+deg_cov_sig   <- melas_out$deg_cov_sig
+deg_noM       <- melas_out$deg_noM
+deg_noM_sig   <- melas_out$deg_noM_sig
 
 # =================== FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF ===================
 
