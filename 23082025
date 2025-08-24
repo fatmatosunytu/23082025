@@ -116,6 +116,7 @@ set.seed(20240724)
   dir.create(file.path(root_dir, "results", "qc"),    recursive = TRUE, showWarnings = FALSE)
   dir.create(file.path(root_dir, "results", "deg"),   recursive = TRUE, showWarnings = FALSE)
   dir.create(file.path(root_dir, "results", "plots"), recursive = TRUE, showWarnings = FALSE)
+dir.create(file.path(root_dir, "results", "miRNA_analysis"), recursive = TRUE, showWarnings = FALSE)
   dir.create(file.path(root_dir, "logs"),             recursive = TRUE, showWarnings = FALSE)
 
   writeLines(c(capture.output(sessionInfo())), file.path(root_dir, "logs", "session_info.txt"))
