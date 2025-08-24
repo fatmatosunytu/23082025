@@ -8,15 +8,26 @@
 # =============================================================================
 
 #==========================AAAAAAAAAAAAAAA===================================
-  
-  install_and_load <- function(pkgs) {
-    for (p in pkgs) {
-      if (!requireNamespace(p, quietly = TRUE)) {
-        BiocManager::install(p, ask = FALSE, update = FALSE)
-      }
-      library(p, character.only = TRUE)
-    }
+packages <- c(
+  "pkgbuild", "AnnotationDbi", "Biobase", "DOSE", "GEOquery", "GOSemSim", "R.utils",
+  "affy", "annotate", "clusterProfiler", "data.table", "dplyr", "enrichplot",
+  "genefilter", "ggplot2", "ggrepel", "grid", "gridExtra", "hgu133plus2.db",
+  "jsonlite", "limma", "msigdbr", "multiMiR", "org.Hs.eg.db", "pheatmap",
+  "sva", "umap"
+)
+
+install_and_load <- function(pkgs) {
+  if (!requireNamespace("BiocManager", quietly = TRUE)) {
+    install.packages("BiocManager")
   }
+  for (p in pkgs) {
+    if (!requireNamespace(p, quietly = TRUE)) {
+      BiocManager::install(p, ask = FALSE, update = FALSE)
+    }
+    library(p, character.only = TRUE)
+  }
+}
+
 
 align_samples <- function(cel_files, pheno) {
   sample_names <- basename(cel_files)
@@ -35,19 +46,8 @@ align_samples <- function(cel_files, pheno) {
   aligned
 }
 
-if (!requireNamespace("pkgbuild", quietly = TRUE)) install.packages("pkgbuild")
+install_and_load(packages)
 pkgbuild::has_build_tools(debug = TRUE)
-
-if (!requireNamespace("BiocManager", quietly = TRUE)) install.packages("BiocManager")
-
-core_packages <- c(
-  "AnnotationDbi", "Biobase", "DOSE", "GEOquery", "GOSemSim", "R.utils",
-  "affy", "annotate", "clusterProfiler", "data.table", "dplyr", "enrichplot",
-  "genefilter", "ggplot2", "ggrepel", "grid", "gridExtra", "hgu133plus2.db",
-  "jsonlite", "limma", "msigdbr", "multiMiR", "org.Hs.eg.db", "pheatmap",
-  "sva", "umap"
-)
-install_and_load(core_packages)
 
 args <- commandArgs(trailingOnly = TRUE)
 p_thresh <- if (length(args) >= 1) as.numeric(args[1]) else 0.1
