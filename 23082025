@@ -332,28 +332,22 @@ prepare_melas <- function(pheno, expr, results_dir = file.path(getwd(), "results
     y <- tolower(trimws(as.character(x)))
     y %in% c("true","yes","1","melas")
   }
-  melas_flag <- ("is_melas" %in% names(pheno) && to_logical(pheno$is_melas)) |
-                ("specialcase" %in% names(pheno) && to_logical(pheno$specialcase))
+   cov_res  <- run_deg_with_covariates(expr, pheno)
+  deg_cov  <- cov_res$deg
+  deg_cov_sig <- cov_res$deg_sig
+  sens_res <- run_deg_no_melas(expr, pheno)
+  deg_noM  <- sens_res$deg
+  deg_noM_sig <- sens_res$deg_sig
 
-  pheno$MELAS_flag <- melas_flag
-  pheno$is_melas <- factor(ifelse(melas_flag, "Yes","No"), levels = c("No","Yes"))
-  pheno$group <- factor(pheno$group, levels = c("Control","Pompe"))
-  if ("age_at_baseline_mounth" %in% names(pheno))
-    pheno$age_at_baseline_mounth <- suppressWarnings(as.numeric(pheno$age_at_baseline_mounth))
-  if ("sex" %in% names(pheno))
-    pheno$sex <- factor(pheno$sex)
-  if ("rin" %in% names(pheno))
-    pheno$rin <- suppressWarnings(as.numeric(pheno$rin))
+  dir.create(results_dir, showWarnings = FALSE, recursive = TRUE)
+  write.csv(deg_cov,  file.path(results_dir, "DE_all_covariate_MELAS_included.csv"))
+  write.csv(deg_noM,  file.path(results_dir, "DE_all_noMELAS.csv"))
+  write.csv(deg_cov_sig, file.path(results_dir, "DE_sig_covariate_MELAS_included_FDR05_LFC1.csv"))
+  write.csv(deg_noM_sig, file.path(results_dir, "DE_sig_noMELAS_FDR05_LFC1.csv"))
 
-  run_deg_with_covariates <- function(expr, pheno, lfc_threshold = 1, fdr_threshold = 0.05) {
-    design_cov <- model.matrix(~0 + group + is_melas + age_at_baseline_mounth + sex + rin, data = pheno)
-    colnames(design_cov) <- make.names(colnames(design_cov))
-    fit_cov  <- limma::lmFit(expr, design_cov)
-    cont_cov <- limma::makeContrasts(Pompe - Control, levels = design_cov)
-    fit2_cov <- limma::eBayes(limma::contrasts.fit(fit_cov, cont_cov))
-    deg_cov  <- limma::topTable(fit2_cov, coef = 1, number = Inf, adjust.method = "BH")
-    deg_cov_sig <- subset(deg_cov, adj.P.Val < fdr_threshold & abs(logFC) >= lfc_threshold)
-    list(deg = deg_cov, deg_sig = deg_cov_sig)
+  list(pheno_aligned = pheno,
+       deg_cov = deg_cov, deg_cov_sig = deg_cov_sig,
+       deg_noM = deg_noM, deg_noM_sig = deg_noM_sig)
   }
   run_deg_no_melas <- function(expr, pheno, lfc_threshold = 1, fdr_threshold = 0.05) {
     keep_idx <- which(pheno$is_melas == "No")
