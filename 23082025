@@ -49,6 +49,10 @@ core_packages <- c(
 )
 install_and_load(core_packages)
 
+args <- commandArgs(trailingOnly = TRUE)
+p_thresh <- if (length(args) >= 1) as.numeric(args[1]) else 0.1
+lfc_thresh <- if (length(args) >= 2) as.numeric(args[2]) else 0.5
+
   root_dir <- normalizePath(Sys.getenv("POMPE_ROOT", getwd()), winslash = "/")
   meta_dir <- file.path(root_dir, "metadata")
 stopifnot(dir.exists(meta_dir))
@@ -288,11 +292,9 @@ tt_gene <- tt_gene[order(tt_gene$SYMBOL, -tt_gene$abs_logFC), ]
 tt_gene <- tt_gene[!duplicated(tt_gene$SYMBOL), ]
 
 stopifnot(exists("tt_all"))
-deg <- subset(tt_gene, adj.P.Val < 0.1 & abs(logFC) >= 0.5)
-if (nrow(deg) == 0) {
-  message("No DEGs found with default thresholds; relaxing to adj.P.Val < 0.2 and |logFC| >= 0.2.")
-  deg <- subset(tt_gene, adj.P.Val < 0.2 & abs(logFC) >= 0.2)
-}
+deg <- subset(tt_gene, adj.P.Val < p_thresh & abs(logFC) >= lfc_thresh)
+if (nrow(deg) == 0) stop("No significant DEGs; lower thresholds or check design.")
+
 up_n   <- sum(deg$logFC > 0, na.rm = TRUE)
 down_n <- sum(deg$logFC < 0, na.rm = TRUE)
 
