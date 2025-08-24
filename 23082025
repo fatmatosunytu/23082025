@@ -104,6 +104,7 @@ stopifnot(all(pheno_aligned$group %in% c("Control","Pompe")))
 print(table(pheno_aligned$group))
 
 group <- factor(pheno_aligned$group, levels = c("Control","Pompe"))
+groups <- group
 design_group <- model.matrix(~ 0 + group)
 colnames(design_group) <- levels(group)
 
@@ -159,8 +160,6 @@ pheno_aligned$group <- trimws(pheno_aligned$group)
 pheno_aligned$group <- ifelse(tolower(pheno_aligned$group) %in% c('control','healthy','normal'), 'Control',
                               ifelse(grepl('pompe', tolower(pheno_aligned$group)), 'Pompe', pheno_aligned$group))
 stopifnot(all(pheno_aligned$group %in% c('Control','Pompe')))
-groups <- factor(pheno_aligned$group, levels = c('Control','Pompe'))
-design_group <- model.matrix(~ 0 + groups); colnames(design_group) <- levels(groups)
 #validObject(eset)
 
 
@@ -227,7 +226,7 @@ if (do_combat) {
   message("ComBat skipped: batch has <2 levels or all NA.")
 }
 
-groups <- droplevels(factor(pheno_aligned$group, levels = c("Control","Pompe")))
+groups <- droplevels(groups)
 mod  <- model.matrix(~ groups)                   # tam model
 mod0 <- model.matrix(~ 1, data = pheno_aligned)  # null model
 k_sv <- tryCatch(sva::num.sv(expr_cb, mod, method = "leek"), error = function(e) 0)
