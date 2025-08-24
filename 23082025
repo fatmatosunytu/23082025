@@ -290,6 +290,10 @@ stopifnot(exists("tt_all"))
 de_loose <- subset(tt_all, adj.P.Val < 0.1 & abs(logFC) >= 0.5)
 
 deg <- subset(tt_gene, adj.P.Val < 0.1 & abs(logFC) >= 0.5)
+if (nrow(deg) == 0) {
+  message("No DEGs found with default thresholds; relaxing to adj.P.Val < 0.2 and |logFC| >= 0.2.")
+  deg <- subset(tt_gene, adj.P.Val < 0.2 & abs(logFC) >= 0.2)
+}
 up_n   <- sum(deg$logFC > 0, na.rm = TRUE)
 down_n <- sum(deg$logFC < 0, na.rm = TRUE)
 
@@ -507,6 +511,7 @@ if (exists("tt_all_s") && exists("deg_sens")) {
 }
 
 stopifnot(exists("tt_gene"), exists("deg"))
+if (nrow(deg) == 0) stop("No DEGs detected; adjust thresholds.")
 expr_plot <- if (exists("expr_use")) expr_use else if (exists("expr_cb")) expr_cb else expr_f  # batch/SVA sonrası
 
 TOP_N <- min(50, nrow(deg))
