@@ -24,9 +24,10 @@ pkgbuild::has_build_tools(debug = TRUE)
 if (!requireNamespace("BiocManager", quietly = TRUE)) install.packages("BiocManager")
 install_and_load(c("GEOquery","affy","limma","Biobase","hgu133plus2.db","R.utils"))
 
-base_dir  <- "C:\\Users\\User\\Desktop\\Pompe_Fair_Project_FULL\\Pompe_Fair_Project_FULL"
-meta_dir  <- file.path(base_dir, "metadata")
-cel_files <- list.files(meta_dir, pattern = "\\.CEL$", 
+base_dir <- normalizePath(Sys.getenv("POMPE_ROOT", "."), winslash = "/")
+meta_dir <- file.path(base_dir, "metadata")
+stopifnot(dir.exists(meta_dir))
+cel_files <- list.files(meta_dir, pattern = "\\.CEL$",
                         full.names = TRUE, ignore.case = TRUE)
 
 stopifnot(length(cel_files) > 0)
@@ -113,8 +114,7 @@ install_and_load(c("affy","limma","Biobase","hgu133plus2.db","annotate","genefil
 
 set.seed(20240724)
 
-root     <- normalizePath("C:\\Users\\User\\Desktop\\Pompe_Fair_Project_FULL\\Pompe_Fair_Project_FULL",
-                          winslash = "/")
+root <- normalizePath(Sys.getenv("POMPE_ROOT", "."), winslash = "/")
 meta_dir <- file.path(root, "metadata")
 stopifnot(dir.exists(meta_dir))
 
@@ -323,7 +323,9 @@ tt_gene <- tt_all[!is.na(tt_all$SYMBOL) & nzchar(tt_all$SYMBOL), ]
 tt_gene <- tt_gene[order(tt_gene$SYMBOL, -tt_gene$abs_logFC), ]
 tt_gene <- tt_gene[!duplicated(tt_gene$SYMBOL), ]
 
-de_loose <- subset(de_all, adj.P.Val < 0.1 & abs(logFC) >= 0.5)
+stopifnot(exists("tt_all"))
+de_all <- tt_all
+de_loose <- subset(tt_all, adj.P.Val < 0.1 & abs(logFC) >= 0.5)
 
 deg <- subset(tt_gene, adj.P.Val < 0.1 & abs(logFC) >= 0.5)
 up_n   <- sum(deg$logFC > 0, na.rm = TRUE)
@@ -342,7 +344,6 @@ cat("Tekilleştirilmiş gen sayısı: ", nrow(tt_gene), "\n", sep = "")
 cat("DEG (FDR<0.1): ", nrow(deg), "  |  Up: ", up_n, "  Down: ", down_n, "\n", sep = "")
 cat("İlk 5 DEG:\n"); print(utils::head(deg[, c("SYMBOL","logFC","adj.P.Val","GENENAME")], 5))
 
-de_all <- tt_all          # tüm sonuçlar (probe-level, anotasyonlu)
 de_sig <- deg             # FDR<0.1 gene-level
 expr_use <- expr_cb       # batch/SVA sonrası matris (grafikler için)
 
