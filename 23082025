@@ -591,7 +591,7 @@ message("Plots written to: ", plot_dir)
 if (!requireNamespace("BiocManager", quietly = TRUE)) install.packages("BiocManager")
 install_and_load(c("msigdbr", "clusterProfiler", "org.Hs.eg.db"))
 
-gsea_dir <- file.path(root, "results", "deg")
+  gsea_dir <- file.path(root_dir, "results", "deg")
 dir.create(gsea_dir, showWarnings = FALSE, recursive = TRUE)
 
 set.seed(1234)
@@ -686,7 +686,7 @@ install_and_load("gridExtra")
 library(grid)
 
 if (exists("ph")) {
-  pdf(file.path(root,"results","plots","volcano_heatmap_Fig1.pdf"), width=16, height=8, family="Times")
+    pdf(file.path(root_dir,"results","plots","volcano_heatmap_Fig1.pdf"), width=16, height=8, family="Times")
   grid.arrange(
     arrangeGrob(volc, top = textGrob("A", gp=gpar(fontsize=22, fontface="bold"), x=unit(0,"npc"), hjust=0)),
     arrangeGrob(ph$gtable, top = textGrob("B", gp=gpar(fontsize=22, fontface="bold"), x=unit(0,"npc"), hjust=0)),
@@ -696,7 +696,7 @@ if (exists("ph")) {
 }
 
 # ======================= ENRICHMENT: GO / KEGG / GSEA + MELAS =======================
-# Ön-koşullar: root, tt_all, tt_gene, deg, groups, expr_cb/expr_matrix
+# Ön-koşullar: root_dir, tt_all, tt_gene, deg, groups, expr_cb/expr_matrix
 if (!requireNamespace("BiocManager", quietly = TRUE)) install.packages("BiocManager")
 for (p in c("clusterProfiler","org.Hs.eg.db","enrichplot","DOSE","GOSemSim")) {
   if (!requireNamespace(p, quietly = TRUE)) BiocManager::install(p, ask = FALSE, update = FALSE)
@@ -707,9 +707,8 @@ library(clusterProfiler); library(org.Hs.eg.db); library(enrichplot)
 library(DOSE); library(GOSemSim); library(ggplot2); library(ggrepel); library(jsonlite)
 
 ## 0) Klasörler
-enrich_dir <- file.path(root, "results", "enrichment")
-dir.create(enrich_dir, recursive = TRUE, showWarnings = FALSE)
-dir.create(plot_dir,   recursive = TRUE, showWarnings = FALSE)
+  enrich_dir <- file.path(root_dir, "results", "enrichment"); dir.create(enrich_dir, recursive = TRUE, showWarnings = FALSE)
+  plot_dir   <- file.path(root_dir, "results", "plots");       dir.create(plot_dir,   recursive = TRUE, showWarnings = FALSE)
 
 ## 1) Girdi listeleri (main analiz)
 stopifnot(exists("tt_gene"), exists("deg"))
@@ -862,8 +861,7 @@ if (!requireNamespace("BiocManager", quietly = TRUE)) install.packages("BiocMana
 install_and_load(c("multiMiR","dplyr","ggplot2","ggrepel","jsonlite"))
 
 # ---- Klasörler + meta
-root_dir <- if (exists("root")) root else getwd()
-out_dir  <- file.path(root_dir, "results", "miRNA_analysis")
+  out_dir  <- file.path(root_dir, "results", "miRNA_analysis")
 dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 set.seed(20240724)
 
@@ -1079,7 +1077,7 @@ if (has_melas) {
     ov   <- length(intersect(deg$SYMBOL, deg_sens$SYMBOL))
     msg  <- sprintf("MELAS dahil DEG: %d | MELAS hariç DEG: %d | ortak: %d",
                     nrow(deg), nrow(deg_sens), ov)
-    writeLines(msg, file.path(root,"results","deg","MELAS_sensitivity_summary.txt"))
+      writeLines(msg, file.path(root_dir,"results","deg","MELAS_sensitivity_summary.txt"))
     message("[MELAS] ", msg)
   } else {
     message("[MELAS] Hariç sonrası örnek sayısı çok az; duyarlılık görselleri atlandı.")
@@ -1091,7 +1089,7 @@ if (has_melas) {
 if (!requireNamespace("BiocManager", quietly = TRUE)) install.packages("BiocManager")
 install_and_load(c("multiMiR","ggplot2","dplyr","ggrepel","jsonlite","umap"))
 
-mir_dir <- file.path(root, "results", "miRNA_analysis")
+  mir_dir <- file.path(root_dir, "results", "miRNA_analysis")
 dir.create(mir_dir, recursive = TRUE, showWarnings = FALSE)
 
 # Küçük n hatırlatması
