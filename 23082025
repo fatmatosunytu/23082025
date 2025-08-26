@@ -8,6 +8,7 @@
 # =============================================================================
 
 #==========================AAAAAAAAAAAAAAA===================================
+# Install and load required packages for analysis
 packages <- c(
   "pkgbuild", "AnnotationDbi", "Biobase", "DOSE", "GEOquery", "GOSemSim", "R.utils",
   "affy", "annotate", "clusterProfiler", "data.table", "dplyr", "enrichplot",
@@ -16,117 +17,55 @@ packages <- c(
   "sva", "umap"
 )
 
-install_and_load <- function(pkgs) {
-  if (!requireNamespace("BiocManager", quietly = TRUE)) {
-    install.packages("BiocManager")
-  }
-  for (p in pkgs) {
-    if (!requireNamespace(p, quietly = TRUE)) {
-      BiocManager::install(p, ask = FALSE, update = FALSE)
-    }
-    library(p, character.only = TRUE)
-  }
-}
+# Load required packages; assumes they are already installed.
+invisible(lapply(packages, library, character.only = TRUE))
 
-
-align_samples <- function(cel_files, pheno) {
-  sample_names <- basename(cel_files)
-  pheno_df <- as.data.frame(pheno, stringsAsFactors = FALSE)
-  pheno_keys <- toupper(basename(trimws(pheno_df$filename)))
-  sample_keys <- toupper(sample_names)
-  idx <- match(sample_keys, pheno_keys)
-  if (any(is.na(idx))) {
-    stop("pheno$filename içinde bulunamayan örnek(ler): ",
+  align_samples <- function(cel_files, pheno) {
+   sample_names <- basename(cel_files)
+   pheno_df <- as.data.frame(pheno, stringsAsFactors = FALSE)
+   pheno_keys <- toupper(basename(trimws(pheno_df$filename)))
+   sample_keys <- toupper(sample_names)
+   idx <- match(sample_keys, pheno_keys)
+   if (any(is.na(idx))) {
+     stop("pheno$filename içinde bulunamayan örnek(ler): ",
          paste(sample_names[is.na(idx)], collapse = ", "))
-  }
-  aligned <- pheno_df[idx, , drop = FALSE]
-  rownames(aligned) <- sample_names
-  stopifnot(nrow(aligned) == length(sample_names))
-  stopifnot(identical(rownames(aligned), sample_names))
-  aligned
-}
+   }
+   aligned <- pheno_df[idx, , drop = FALSE]
+   rownames(aligned) <- sample_names
+   stopifnot(nrow(aligned) == length(sample_names))
+   stopifnot(identical(rownames(aligned), sample_names))
+   aligned
+ }
 
-install_and_load(packages)
 pkgbuild::has_build_tools(debug = TRUE)
 
 args <- commandArgs(trailingOnly = TRUE)
-p_thresh <- if (length(args) >= 1) as.numeric(args[1]) else 0.1
-lfc_thresh <- if (length(args) >= 2) as.numeric(args[2]) else 0.5
+FDR_THRESH   <- if (length(args) >= 1) as.numeric(args[1]) else 0.1
+LOGFC_THRESH <- if (length(args) >= 2) as.numeric(args[2]) else 0.5
+
+
+#dir.create(file.path(root_dir, "metadata"))
+
+# Load CEL files and normalize with RMA
 
   root_dir <- normalizePath(Sys.getenv("POMPE_ROOT", getwd()), winslash = "/")
+  dir.create(file.path(root_dir, "metadata"), showWarnings = FALSE, recursive = TRUE)
   meta_dir <- file.path(root_dir, "metadata")
-stopifnot(dir.exists(meta_dir))
-cel_files <- list.files(meta_dir, pattern = "\\.CEL$",
-                        full.names = TRUE, ignore.case = TRUE)
 
-stopifnot(length(cel_files) > 0)
 
-length(cel_files)
-head(basename(cel_files))
-
-pheno_path <- file.path(meta_dir, "pheno.csv")
-stopifnot(file.exists(pheno_path))
-pheno <- read.csv(pheno_path, stringsAsFactors=FALSE)
-
-cel_ids <- tools::file_path_sans_ext(basename(cel_files))    
-gsm_from_cel <- sub("^(GSM[0-9]+).*", "\\1", cel_ids)         
-
-id_candidates <- c("sample","Sample","geo_accession","GSM","gsm","SampleID","filename")
-id_col <- id_candidates[id_candidates %in% names(pheno)][1]
-stopifnot(!is.na(id_col))  
-
-ph_ids <- pheno[[id_col]]
-ph_ids <- tools::file_path_sans_ext(basename(trimws(as.character(ph_ids))))
-ph_ids <- sub("^(GSM[0-9]+).*", "\\1", ph_ids)               
-
-mi <- match(gsm_from_cel, ph_ids)
-if (any(is.na(mi))) {
-  cat("Eşleşmeyen GSM'ler (CEL tarafında olup pheno'da bulunamayanlar):\n")
-  print(setdiff(gsm_from_cel, ph_ids))
-  stop("GSM eşleşmesi bulunamadı; pheno.csv'deki ID kolonunu kontrol et.")
-}
-pheno <- pheno[mi, , drop = FALSE]
-
-## Analiz boyunca tekil ve tutarlı olsun diye pheno'ya kesin sample etiketi yaz
-pheno$sample <- cel_ids
-
-raw <- ReadAffy(filenames = cel_files)
-eset <- rma(raw)
-sn <- sampleNames(eset)
-expr_matrix <- exprs(eset)
-
-pheno_aligned <- align_samples(cel_files, pheno)
-
-pheno_aligned$group <- trimws(pheno_aligned$group)
-pheno_aligned$group <- ifelse(tolower(pheno_aligned$group) %in% c("control","healthy","normal"), "Control",
-                              ifelse(grepl("pompe", tolower(pheno_aligned$group)), "Pompe", pheno_aligned$group))
-stopifnot(all(pheno_aligned$group %in% c("Control","Pompe")))
-print(table(pheno_aligned$group))
-
-group <- factor(pheno_aligned$group, levels = c("Control","Pompe"))
-groups <- group
-design_group <- model.matrix(~ 0 + group)
-colnames(design_group) <- levels(group)
-
-expr <- exprs(eset)   # QC bloğu 'expr' kullanıyor; bunu tanımla
-
-Biobase::pData(eset) <- pheno_aligned
-validObject(eset)
-
-set.seed(20240724)
-
-  meta_dir <- file.path(root_dir, "metadata")
   stopifnot(dir.exists(meta_dir))
 
   dir.create(file.path(root_dir, "results", "qc"),    recursive = TRUE, showWarnings = FALSE)
   dir.create(file.path(root_dir, "results", "deg"),   recursive = TRUE, showWarnings = FALSE)
   dir.create(file.path(root_dir, "results", "plots"), recursive = TRUE, showWarnings = FALSE)
-dir.create(file.path(root_dir, "results", "miRNA_analysis"), recursive = TRUE, showWarnings = FALSE)
+  dir.create(file.path(root_dir, "results", "miRNA_analysis"), recursive = TRUE, showWarnings = FALSE)
   dir.create(file.path(root_dir, "logs"),             recursive = TRUE, showWarnings = FALSE)
 
   writeLines(c(capture.output(sessionInfo())), file.path(root_dir, "logs", "session_info.txt"))
 
-pheno <- data.table::fread(file.path(meta_dir, "pheno.csv"), na.strings = c("", "NA", "NaN"))
+  set.seed(20240724)
+
+  pheno <- data.table::fread(file.path(meta_dir, "pheno.csv"), na.strings = c("", "NA", "NaN"))
 
 pheno$filename <- basename(trimws(pheno$filename))
 cel_dir   <- meta_dir
@@ -147,25 +86,16 @@ if (!"is_melas" %in% names(pheno)) pheno$is_melas <- FALSE
 pheno$is_melas <- tolower(trimws(as.character(pheno$is_melas))) %in%
   c("1","true","t","yes","y")
 
+# Ensure batch column exists even if absent
 if (!"batch" %in% names(pheno)) pheno$batch <- NA
 
-raw <- ReadAffy(filenames = cel_files)
-eset <- rma(raw)
-expr <- exprs(eset)   # QC bloğu 'expr' kullanıyor; bunu tanımla
-# ========================== BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB ===============
-
-pheno_aligned <- align_samples(cel_files, pheno)
-
-pheno_aligned$group <- trimws(pheno_aligned$group)
-pheno_aligned$group <- ifelse(tolower(pheno_aligned$group) %in% c('control','healthy','normal'), 'Control',
-                              ifelse(grepl('pompe', tolower(pheno_aligned$group)), 'Pompe', pheno_aligned$group))
-stopifnot(all(pheno_aligned$group %in% c('Control','Pompe')))
-#validObject(eset)
-
+## Initial processing already produced 'raw', 'eset', 'expr', and 'pheno_aligned'.
+## Reuse those objects rather than re-reading the CEL files.
 
 ## ---- ExpressionSet ID eşitleme (assayData / phenoData / protocolData) ----
 
 # 0) data.table olduysa düz data.frame’e çevir
+pheno_aligned <- align_samples(cel_files, pheno)
 if (inherits(pheno_aligned, "data.table")) data.table::setDF(pheno_aligned)
 
 # 1) pheno satır adları benzersiz olsun (zorunlu değil ama güvenli)
@@ -174,7 +104,18 @@ if (anyDuplicated(rownames(pheno_aligned))) {
 }
 
 # 2) Örnek adlarını tek noktadan güncelle (assayData'nın tamamı ile birlikte)
+# eset yoksa oluştur
+if (!exists("eset")) {
+  stopifnot(exists("cel_files"))
+  raw  <- ReadAffy(filenames = cel_files)
+  eset <- rma(raw)
+  expr <- exprs(eset)
+}
+
 Biobase::sampleNames(eset) <- rownames(pheno_aligned)
+# sampleNames(eset) atamasını yaptıktan SONRA:
+expr <- Biobase::exprs(eset)                 # matrisi yeniden çek
+colnames(expr) <- Biobase::sampleNames(eset) # güvence için kolon adlarını eşitle
 
 # 3) Sıralamayı ROWNAME-matching ile yap (data.table semantiğine girmeden)
 ord <- match(Biobase::sampleNames(eset), rownames(pheno_aligned))
@@ -189,14 +130,25 @@ Biobase::protocolData(eset) <- Biobase::AnnotatedDataFrame(
 
 # 5) Son doğrulama
 methods::validObject(eset)  # TRUE dönmeli
+expr_matrix <- Biobase::exprs(eset)
+colnames(expr_matrix) <- Biobase::sampleNames(eset)
 
-iqr <- apply(expr, 1, IQR)
+
+#expr <- Biobase::exprs(eset)                 # matrisi yeniden çek
+#colnames(expr) <- Biobase::sampleNames(eset) # güvence için kolon adlarını eşitle
+#colnames(expr_matrix) <- Biobase::sampleNames(eset)
+#expr <- expr_matrix   # QC bloğu 'expr' kullanıyor; normalize edilmiş ifadeyi yeniden kullan
+#stopifnot(identical(colnames(expr), Biobase::sampleNames(eset)))
+
+
+  # Conduct quality control and filter low-expression probes ANA BAŞLIK
+  iqr <- apply(expr, 1, IQR)
 thr <- quantile(iqr, 0.20, na.rm = TRUE)   # alt %20 IQR dışarı
 keep <- iqr > thr
 expr_f <- expr[keep, ]
 message("Low-expression removed: ", sum(!keep), " probes (", round(mean(!keep)*100,2), "%)")
 write.csv(data.frame(probe=rownames(expr)[!keep], IQR=iqr[!keep]),
-            file.path(root_dir,"results","qc","low_expression_removed.csv"), row.names = FALSE)
+          file.path(root_dir,"results","qc","low_expression_removed.csv"), row.names = FALSE)
 
 # PCA ile QC (FAIR: şeffaflık)
 pca <- prcomp(t(expr_f), scale. = TRUE)
@@ -205,71 +157,194 @@ pca_df <- data.frame(pca$x[,1:2], group = pheno_aligned$group,
 gg <- ggplot(pca_df, aes(PC1, PC2, color = group, shape = factor(batch), label = sample)) +
   geom_point(size=3) + ggrepel::geom_text_repel(size=2.8) +
   theme_bw(14) + labs(title="PCA – RMA + IQR filtre", shape = "batch")
-  ggplot2::ggsave(file.path(root_dir,"results","qc","pca_groups_batches.png"), gg, width=9, height=7)
+ggplot2::ggsave(file.path(root_dir,"results","qc","pca_groups_batches.png"), gg, width=9, height=7)
 
 # ========================== DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD ===============
 
+#stopifnot(exists("pheno_aligned"))
+#expr_cb <- if (exists("expr_f")) expr_f else expr#
+#stopifnot(ncol(expr_cb) == nrow(pheno_aligned))
+
+  #dir.create(file.path(root_dir,"results","deg"), showWarnings = FALSE, recursive = TRUE)
+
+#do_combat <- "batch" %in% names(pheno_aligned) &&
+  #length(unique(na.omit(pheno_aligned$batch))) > 1
+#if (do_combat) {
+  #batch_vec <- factor(pheno_aligned$batch)
+  #mod_cb    <- model.matrix(~ pheno_aligned$group)   # grup kovaryatıyla düzelt
+  #expr_cb   <- sva::ComBat(dat = expr_cb, batch = batch_vec, mod = mod_cb,
+                          # par.prior = TRUE, prior.plots = FALSE)
+#} else {
+  #message("ComBat skipped: batch has <2 levels or all NA.")
+#}
+
+#groups <- droplevels(groups)
+#mod  <- model.matrix(~ groups)                   # tam model
+#mod0 <- model.matrix(~ 1, data = pheno_aligned)  # null model
+#k_sv <- tryCatch(sva::num.sv(expr_cb, mod, method = "leek"), error = function(e) 0)
+#k_sv <- if (is.na(k_sv) || k_sv < 1) 0 else k_sv
+#svobj <- if (k_sv > 0) sva::sva(expr_cb, mod, mod0, n.sv = k_sv) else NULL
+
+#design_df <- data.frame(group = groups, stringsAsFactors = FALSE)
+
+#add_cov <- function(nm) {
+  #if (!nm %in% names(pheno_aligned)) return(invisible(NULL))
+  #v <- pheno_aligned[[nm]]
+  #if (is.numeric(v)) {
+    #if (sum(!is.na(v)) >= 2 && stats::sd(v, na.rm = TRUE) > 0)
+      #design_df[[nm]] <<- v else message("Dropped numeric covariate (no variance): ", nm)
+  #} else {
+    #f <- droplevels(factor(v))
+    #if (nlevels(f) >= 2) design_df[[nm]] <<- f
+    #else message("Dropped factor covariate (only 1 level): ", nm)
+  #}
+#}
+
+#invisible(lapply(c("age_at_baseline_mounth","sex","rin"), add_cov))
+
+#if (!is.null(svobj) && !is.null(svobj$sv)) {
+  #sva_mat <- scale(svobj$sv, center = TRUE, scale = FALSE)       # merkezle
+  #colnames(sva_mat) <- paste0("SV", seq_len(ncol(sva_mat)))
+ # design_df <- cbind(design_df, sva_mat)
+#}
+
+#design <- model.matrix(~ 0 + ., data = design_df)
+
+#cn <- colnames(design)
+#cn[cn == "groupControl"] <- "Control"
+#cn[cn == "groupPompe"]   <- "Pompe"
+#colnames(design) <- cn
+
+#stopifnot(all(c("Control","Pompe") %in% colnames(design)))
+#stopifnot(nrow(design) == ncol(expr_cb))
+
+#cat("\n>> DESIGN sütunları:\n"); print(colnames(design))
+  #cat(">> Num. SV (SVA):", k_sv, "\n")
+
+  # Identify differentially expressed genes with limma ANA BAŞLIK
+
+expr_cb <- if (exists("expr_f")) expr_f else expr   # IQR filtresi varsa expr_f; yoksa expr
+stopifnot(is.matrix(expr_cb))
+stopifnot(exists("design"))
+stopifnot(ncol(expr_cb) == nrow(design))           # sütun-satır uyumu
+
+
+
+# 1) Analizde kullanılacak ifade matrisi
+expr_cb <- if (exists("expr_f")) expr_f else expr   # IQR filtreli varsa onu kullan
+
+# 2) Grup faktörü ve tasarım matrisi
 stopifnot(exists("pheno_aligned"))
-expr_cb <- if (exists("expr_f")) expr_f else expr
-stopifnot(ncol(expr_cb) == nrow(pheno_aligned))
+groups <- factor(pheno_aligned$group, levels = c("Control","Pompe"))
 
-dir.create(file.path(root,"results","deg"), showWarnings = FALSE, recursive = TRUE)
+# En sade tasarım: sadece grup etkisi
+design <- model.matrix(~ 0 + groups)
+colnames(design) <- c("Control","Pompe")
 
-do_combat <- "batch" %in% names(pheno_aligned) &&
-  length(unique(na.omit(pheno_aligned$batch))) > 1
-if (do_combat) {
-  batch_vec <- factor(pheno_aligned$batch)
-  mod_cb    <- model.matrix(~ pheno_aligned$group)   # grup kovaryatıyla düzelt
-  expr_cb   <- sva::ComBat(dat = expr_cb, batch = batch_vec, mod = mod_cb,
-                           par.prior = TRUE, prior.plots = FALSE)
-} else {
-  message("ComBat skipped: batch has <2 levels or all NA.")
+# 3) Sağlamlık kontrolleri
+stopifnot(is.matrix(expr_cb))
+stopifnot(is.matrix(design))
+stopifnot(ncol(expr_cb) == nrow(design))
+
+# (İstersen bak)
+# print(dim(expr_cb)); print(dim(design)); head(design)
+
+
+##################### MELAS HATASI İÇİN EKLEDİM     ######################
+
+# İfade matrisi (IQR filtre varsa expr_f, yoksa expr)
+#expr <- if (exists("expr_f")) expr_f else expr
+
+# Gruplar ve kovaryatları temizle
+#stopifnot(exists("pheno_aligned"))
+#groups <- factor(pheno_aligned$group, levels = c("Control","Pompe"))
+
+#age_m <- NULL; sex_f <- NULL; rin_n <- NULL
+#if ("age_at_baseline_mounth" %in% names(pheno_aligned)) {
+ # age_m <- suppressWarnings(as.numeric(pheno_aligned$age_at_baseline_mounth))
+#}
+#if ("sex" %in% names(pheno_aligned)) {
+ # sex_f <- factor(toupper(trimws(pheno_aligned$sex)))
+#}
+#if ("rin" %in% names(pheno_aligned)) {
+ # rin_n <- suppressWarnings(as.numeric(pheno_aligned$rin))
+#}
+
+#design_df <- data.frame(groups = groups, stringsAsFactors = FALSE)
+#if (!is.null(age_m) && stats::sd(age_m, na.rm=TRUE) > 0) design_df$age_m <- age_m
+#if (!is.null(sex_f) && nlevels(droplevels(sex_f)) >= 2) design_df$sex_f <- droplevels(sex_f)
+#if (!is.null(rin_n) && stats::sd(rin_n, na.rm=TRUE) > 0) design_df$rin_n <- rin_n
+
+# Tasarım: 0+ ile grup göstergeleri; varsa kovaryatlar eklenir
+#design_cov <- stats::model.matrix(~ 0 + ., data = design_df)
+#colnames(design_cov) <- sub("^groupsControl$", "Control",
+#                            sub("^groupsPompe$",   "Pompe", colnames(design_cov)))
+#rownames(design_cov) <- rownames(pheno_aligned)
+
+# Boyut ve sıra kontrolleri
+#stopifnot(nrow(design_cov) == ncol(expr))              # 19 == 19 olmalı
+#stopifnot(identical(colnames(expr), rownames(design_cov)))
+
+
+
+
+
+# --- Güvenli kovaryat çekme ve temizleme ---
+age_m <- sex_f <- rin_n <- NULL
+
+if ("age_at_baseline_mounth" %in% names(pheno_aligned) ||
+    "age_at_baseline_month"  %in% names(pheno_aligned)) {
+  age_col <- intersect(c("age_at_baseline_mounth","age_at_baseline_month"),
+                       names(pheno_aligned))[1]
+  age_m <- suppressWarnings(as.numeric(gsub(",", ".", trimws(pheno_aligned[[age_col]]))))
 }
 
-groups <- droplevels(groups)
-mod  <- model.matrix(~ groups)                   # tam model
-mod0 <- model.matrix(~ 1, data = pheno_aligned)  # null model
-k_sv <- tryCatch(sva::num.sv(expr_cb, mod, method = "leek"), error = function(e) 0)
-k_sv <- if (is.na(k_sv) || k_sv < 1) 0 else k_sv
-svobj <- if (k_sv > 0) sva::sva(expr_cb, mod, mod0, n.sv = k_sv) else NULL
-
-design_df <- data.frame(group = groups, stringsAsFactors = FALSE)
-
-add_cov <- function(nm) {
-  if (!nm %in% names(pheno_aligned)) return(invisible(NULL))
-  v <- pheno_aligned[[nm]]
-  if (is.numeric(v)) {
-    if (sum(!is.na(v)) >= 2 && stats::sd(v, na.rm = TRUE) > 0)
-      design_df[[nm]] <<- v else message("Dropped numeric covariate (no variance): ", nm)
-  } else {
-    f <- droplevels(factor(v))
-    if (nlevels(f) >= 2) design_df[[nm]] <<- f
-    else message("Dropped factor covariate (only 1 level): ", nm)
-  }
+if ("sex" %in% names(pheno_aligned)) {
+  sex_f <- factor(toupper(trimws(as.character(pheno_aligned$sex))))
 }
 
-invisible(lapply(c("age_at_baseline_mounth","sex","rin"), add_cov))
-
-if (!is.null(svobj) && !is.null(svobj$sv)) {
-  sva_mat <- scale(svobj$sv, center = TRUE, scale = FALSE)       # merkezle
-  colnames(sva_mat) <- paste0("SV", seq_len(ncol(sva_mat)))
-  design_df <- cbind(design_df, sva_mat)
+if ("rin" %in% names(pheno_aligned)) {
+  rin_raw <- trimws(as.character(pheno_aligned$rin))
+  rin_raw[rin_raw %in% c("TRUE","T","Yes","Y")] <- NA  # sayı olmayanları NA yap
+  rin_n <- suppressWarnings(as.numeric(gsub(",", ".", rin_raw)))
 }
 
-design <- model.matrix(~ 0 + ., data = design_df)
+# --- Tasarım veri çerçevesi ---
+design_df <- data.frame(groups = factor(pheno_aligned$group, levels=c("Control","Pompe")),
+                        stringsAsFactors = FALSE)
 
-cn <- colnames(design)
-cn[cn == "groupControl"] <- "Control"
-cn[cn == "groupPompe"]   <- "Pompe"
-colnames(design) <- cn
+if (!is.null(age_m)) {
+  sda <- stats::sd(age_m, na.rm = TRUE)
+  if (!is.na(sda) && sda > 0) design_df$age_m <- age_m
+}
 
-stopifnot(all(c("Control","Pompe") %in% colnames(design)))
-stopifnot(nrow(design) == ncol(expr_cb))
+if (!is.null(sex_f)) {
+  sex_f <- droplevels(sex_f)
+  if (nlevels(sex_f) >= 2) design_df$sex_f <- sex_f
+}
 
-cat("\n>> DESIGN sütunları:\n"); print(colnames(design))
-cat(">> Num. SV (SVA):", k_sv, "\n")
+if (!is.null(rin_n)) {
+  sdr <- stats::sd(rin_n, na.rm = TRUE)
+  if (!is.na(sdr) && sdr > 0) design_df$rin_n <- rin_n
+}
 
-fit  <- limma::lmFit(expr_cb, design)
+# Matris
+design_cov <- stats::model.matrix(~ 0 + ., data = design_df)
+colnames(design_cov) <- sub("^groupsControl$", "Control",
+                            sub("^groupsPompe$",   "Pompe", colnames(design_cov)))
+rownames(design_cov) <- rownames(pheno_aligned)
+
+
+
+
+
+
+
+
+###################################################################################
+
+
+  fit  <- limma::lmFit(expr_cb, design)
 cont <- limma::makeContrasts(PompeVsControl = Pompe - Control, levels = design)
 fit2 <- limma::eBayes(limma::contrasts.fit(fit, cont))
 
@@ -279,11 +354,25 @@ probes <- rownames(expr_cb)
 ann <- AnnotationDbi::select(hgu133plus2.db, keys = probes,
                              columns = c("SYMBOL","GENENAME"),
                              keytype = "PROBEID")
-sym    <- ann$SYMBOL[match(probes, ann$PROBEID)]
-genenm <- ann$GENENAME[match(probes, ann$PROBEID)]
 
-tt_all$SYMBOL   <- sym[rownames(tt_all)]
-tt_all$GENENAME <- genenm[rownames(tt_all)]
+#sym    <- ann$SYMBOL[match(probes, ann$PROBEID)]
+#genenm <- ann$GENENAME[match(probes, ann$PROBEID)]
+
+#tt_all$SYMBOL   <- sym[rownames(tt_all)]
+#tt_all$GENENAME <- genenm[rownames(tt_all)]
+
+
+ann <- AnnotationDbi::select(hgu133plus2.db,
+                             keys = rownames(tt_all),
+                             columns = c("SYMBOL","GENENAME"),
+                             keytype = "PROBEID")
+
+lkp_sym  <- setNames(ann$SYMBOL,  ann$PROBEID)
+lkp_name <- setNames(ann$GENENAME, ann$PROBEID)
+
+tt_all$SYMBOL   <- unname(lkp_sym[rownames(tt_all)])
+tt_all$GENENAME <- unname(lkp_name[rownames(tt_all)])
+
 
 tt_all$abs_logFC <- abs(tt_all$logFC)
 tt_gene <- tt_all[!is.na(tt_all$SYMBOL) & nzchar(tt_all$SYMBOL), ]
@@ -291,68 +380,133 @@ tt_gene <- tt_gene[order(tt_gene$SYMBOL, -tt_gene$abs_logFC), ]
 tt_gene <- tt_gene[!duplicated(tt_gene$SYMBOL), ]
 
 stopifnot(exists("tt_all"))
-deg <- subset(tt_gene, adj.P.Val < p_thresh & abs(logFC) >= lfc_thresh)
+
+###################### KONTROL  ######################################
+table(is.na(tt_all$SYMBOL))   # artık çoğu FALSE olmalı
+nrow(tt_gene)                 # >0 olmalı
+
+deg <- subset(tt_gene, adj.P.Val < FDR_THRESH & abs(logFC) >= LOGFC_THRESH)
 if (nrow(deg) == 0) stop("No significant DEGs; lower thresholds or check design.")
 
 up_n   <- sum(deg$logFC > 0, na.rm = TRUE)
 down_n <- sum(deg$logFC < 0, na.rm = TRUE)
 
-  write.csv(tt_all,  file.path(root_dir,"results","deg","all_probes_BH.csv"))
-  write.csv(tt_gene, file.path(root_dir,"results","deg","collapsed_by_gene.csv"), row.names = TRUE)
-  write.csv(deg,     file.path(root_dir,"results","deg","DEG_FDR_lt_0.1.csv"), row.names = TRUE)
+write.csv(tt_all,  file.path(root_dir,"results","deg","all_probes_BH.csv"))
+write.csv(tt_gene, file.path(root_dir,"results","deg","collapsed_by_gene.csv"), row.names = TRUE)
+write.csv(deg,     file.path(root_dir,"results","deg", sprintf("DEG_FDR_lt_%s.csv", FDR_THRESH)), row.names = TRUE)
+
+#################    TEŞHİS    #############################
+# 1) tt_all var ve dolu mu?
+nrow(tt_all)
+
+# 2) Anotasyon kapsaması ne kadar?
+table("SYMBOL_is_NA" = is.na(tt_all$SYMBOL))
+mean(!is.na(tt_all$SYMBOL))  # kapsama oranı
+
+# 3) topTable satır isimleri prob’larla uyumlu mu?
+probes <- rownames(expr_cb)
+all(rownames(tt_all) %in% probes)
+
+# 4) İlk birkaç probe için sembol geliyor mu?
+head(AnnotationDbi::select(hgu133plus2.db,
+                           keys=head(probes, 5),
+                           columns=c("SYMBOL","GENENAME"),
+                           keytype="PROBEID"))
+
 
 cat("\n=== ÖZET ===\n")
-cat("ComBat: ", if (do_combat) "APPLIED" else "SKIPPED", "\n")
-cat("SVA (n.sv): ", k_sv, if (k_sv > 0) "  [SV'ler design'a eklendi]\n" else "  [kullanılmadı]\n", sep = "")
+#cat("ComBat: ", if (do_combat) "APPLIED" else "SKIPPED", "\n")
+#cat("SVA (n.sv): ", k_sv, if (k_sv > 0) "  [SV'ler design'a eklendi]\n" else "  [kullanılmadı]\n", sep = "")
 cat("Design boyutu: ", nrow(design), " örnek x ", ncol(design), " değişken\n", sep = "")
 cat("Toplam gen (probe-level): ", nrow(tt_all), "\n", sep = "")
 cat("Tekilleştirilmiş gen sayısı: ", nrow(tt_gene), "\n", sep = "")
-cat("DEG (FDR<0.1): ", nrow(deg), "  |  Up: ", up_n, "  Down: ", down_n, "\n", sep = "")
+write.csv(deg,     file.path(root_dir,"results","deg", sprintf("DEG_FDR_lt_%s.csv", FDR_THRESH)), row.names = TRUE)
 cat("İlk 5 DEG:\n"); print(utils::head(deg[, c("SYMBOL","logFC","adj.P.Val","GENENAME")], 5))
 
-de_sig <- deg             # FDR<0.1 gene-level
+de_sig <- deg             # FDR < FDR_THRESH gene-level
 expr_use <- expr_cb       # batch/SVA sonrası matris (grafikler için)
+
+
+####################        ÖZET      #######################################
+
+# Toplam DEG sayısını yazdır (yoksa hesapla, varsa mevcut 'deg'i kullan)
+if (!exists("deg")) {
+  p_thresh   <- get0("p_thresh",   ifnotfound = get0("FDR_THRESH",   ifnotfound = 0.1))
+  lfc_thresh <- get0("lfc_thresh", ifnotfound = get0("LOGFC_THRESH", ifnotfound = 0.5))
+  stopifnot(exists("tt_gene"))
+  deg <- subset(tt_gene, adj.P.Val < p_thresh & abs(logFC) >= lfc_thresh)
+}
+total_deg <- nrow(deg)
+up_deg    <- sum(deg$logFC > 0, na.rm = TRUE)
+down_deg  <- sum(deg$logFC < 0, na.rm = TRUE)
+cat("Toplam DEG:", total_deg, "| Up:", up_deg, "| Down:", down_deg, "\n")
+
 
 # ========================== EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE ===============
 
 # ==== MELAS bayrakları ve diferansiyel analiz için yardımcı fonksiyon ====
+
+
+#to_logical <- function(x, n = length(x)) {
+#  if (is.null(x)) return(rep(FALSE, n))
+#  if (is.logical(x)) return(replace(x, is.na(x), FALSE))
+#  if (is.numeric(x)) return(!is.na(x) & x != 0)
+#  y <- tolower(trimws(as.character(x)))
+#  y %in% c("true","yes","1","melas")
+#}
+
+to_scalar_logical <- function(x) {
+  if (is.logical(x)) return(isTRUE(any(x, na.rm = TRUE)))
+  if (is.numeric(x)) return(isTRUE(any(x != 0, na.rm = TRUE)))
+  if (is.character(x)) {
+    y <- tolower(trimws(x))
+    return(isTRUE(any(y %in% c("1","true","t","yes","y"), na.rm = TRUE)))
+  }
+  FALSE
+}
+
 prepare_melas <- function(pheno, expr, results_dir = file.path(getwd(), "results")) {
   ids <- colnames(expr)
   if (!"filename" %in% names(pheno))
     stop("pheno_aligned içinde 'filename' kolonu yok (GSM...CEL).")
-
+  
   idx <- match(ids, pheno$filename)
   stopifnot(!any(is.na(idx)))
   pheno <- pheno[idx, , drop = FALSE]
   rownames(pheno) <- ids
-
-  to_logical <- function(x){
-    if (is.null(x)) return(rep(FALSE, nrow(pheno)))
-    if (is.logical(x)) return(replace(x, is.na(x), FALSE))
-    if (is.numeric(x)) return(!is.na(x) & x != 0)
-    y <- tolower(trimws(as.character(x)))
-    y %in% c("true","yes","1","melas")
-  }
-   cov_res  <- run_deg_with_covariates(expr, pheno)
-  deg_cov  <- cov_res$deg
-  deg_cov_sig <- cov_res$deg_sig
-  sens_res <- run_deg_no_melas(expr, pheno)
-  deg_noM  <- sens_res$deg
-  deg_noM_sig <- sens_res$deg_sig
-
+  
+  run_res <- run_deg_analysis(expr, pheno, run_melas = TRUE)
+  deg_cov    <- run_res$deg_cov
+  deg_cov_sig <- run_res$deg_cov_sig
+  deg_noM    <- run_res$deg_noM
+  deg_noM_sig <- run_res$deg_noM_sig
+  
   dir.create(results_dir, showWarnings = FALSE, recursive = TRUE)
   write.csv(deg_cov,  file.path(results_dir, "DE_all_covariate_MELAS_included.csv"))
   write.csv(deg_noM,  file.path(results_dir, "DE_all_noMELAS.csv"))
-  write.csv(deg_cov_sig, file.path(results_dir, "DE_sig_covariate_MELAS_included_FDR05_LFC1.csv"))
-  write.csv(deg_noM_sig, file.path(results_dir, "DE_sig_noMELAS_FDR05_LFC1.csv"))
-
+  write.csv(deg_cov_sig, file.path(results_dir,
+                                   sprintf("DE_sig_covariate_MELAS_included_FDR%s_LFC%s.csv",
+                                           FDR_THRESH, LOGFC_THRESH)))
+  write.csv(deg_noM_sig, file.path(results_dir,
+                                   sprintf("DE_sig_noMELAS_FDR%s_LFC%s.csv",
+                                           FDR_THRESH, LOGFC_THRESH)))
+  
   list(pheno_aligned = pheno,
        deg_cov = deg_cov, deg_cov_sig = deg_cov_sig,
        deg_noM = deg_noM, deg_noM_sig = deg_noM_sig)
-  }
+}
 
-melas_flag <- ( "is_melas"    %in% names(pheno_aligned) && to_logical(pheno_aligned$is_melas) ) |
-  ( "specialcase" %in% names(pheno_aligned) && to_logical(pheno_aligned$specialcase) )
+melas_flag <-
+  ( "is_melas" %in% names(pheno_aligned) && to_scalar_logical(pheno_aligned$is_melas) ) ||
+  ( "specialcase" %in% names(pheno_aligned) && to_scalar_logical(pheno_aligned$specialcase) )
+
+
+
+melas_flag <-
+  ( "is_melas" %in% names(pheno_aligned) &&
+      isTRUE(any(tolower(trimws(as.character(pheno_aligned$is_melas))) %in% c("1","true","t","yes","y"), na.rm = TRUE)) ) ||
+  ( "specialcase" %in% names(pheno_aligned) &&
+      isTRUE(any(as.logical(pheno_aligned$specialcase), na.rm = TRUE)) )
 
 pheno_aligned$is_melas <- factor(ifelse(melas_flag, "Yes","No"), levels = c("No","Yes"))
 
@@ -369,7 +523,7 @@ stopifnot(nrow(pheno_aligned) == ncol(expr_f))
 stopifnot(identical(rownames(pheno_aligned), colnames(expr_f)))
 
 run_deg_analysis <- function(expr, pheno, run_melas = FALSE,
-                             lfc_threshold = 1, fdr_threshold = 0.05) {
+                             lfc_threshold = LOGFC_THRESH, fdr_threshold = FDR_THRESH) {
   design_cov <- model.matrix(~0 + group + is_melas + age_at_baseline_mounth + sex + rin,
                              data = pheno)
   colnames(design_cov) <- make.names(colnames(design_cov))
@@ -396,23 +550,10 @@ run_deg_analysis <- function(expr, pheno, run_melas = FALSE,
   out
 }
 
-melas_res <- run_deg_analysis(expr_f, pheno_aligned, run_melas = TRUE)
-deg_cov    <- melas_res$deg_cov
-deg_cov_sig <- melas_res$deg_cov_sig
-deg_noM    <- melas_res$deg_noM
-deg_noM_sig <- melas_res$deg_noM_sig
-
-if (!exists("results_dir")) results_dir <- file.path(getwd(), "results")
-melas_out <- prepare_melas(pheno_aligned, expr_f, results_dir)
-pheno_aligned <- melas_out$pheno_aligned
-deg_cov       <- melas_out$deg_cov
-deg_cov_sig   <- melas_out$deg_cov_sig
-deg_noM       <- melas_out$deg_noM
-deg_noM_sig   <- melas_out$deg_noM_sig
 
 # =================== FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF ===================
 
-  plot_dir <- file.path(root_dir, "results", "plots")
+plot_dir <- file.path(root_dir, "results", "plots")
 dir.create(plot_dir, showWarnings = FALSE, recursive = TRUE)
 
 expr_plot <- if (exists("expr_use")) expr_use else if (exists("expr_cb")) expr_cb else expr_f
@@ -422,7 +563,7 @@ stopifnot(exists("tt_all"), exists("tt_gene"), exists("deg"))
 
 volc_main <- within(tt_all, {
   negLog10FDR <- -log10(adj.P.Val)
-  sig <- adj.P.Val < 0.1
+  sig <- adj.P.Val < FDR_THRESH
   dir <- ifelse(sig & logFC > 0, "Up",
                 ifelse(sig & logFC < 0, "Down", "NS"))
 })
@@ -432,8 +573,8 @@ lab_main$SYMBOL[is.na(lab_main$SYMBOL) | lab_main$SYMBOL == ""] <- rownames(lab_
 
 volc <- ggplot(volc_main, aes(x = logFC, y = negLog10FDR)) +
   geom_point(aes(shape = dir), alpha = 0.6) +
-  geom_hline(yintercept = -log10(0.05), linetype = 2) +
-  geom_vline(xintercept = c(-1, 1), linetype = 3) +
+  geom_hline(yintercept = -log10(FDR_THRESH), linetype = 2) +
+  geom_vline(xintercept = c(-LOGFC_THRESH, LOGFC_THRESH), linetype = 3) +
   ggrepel::geom_text_repel(
     data = lab_main,
     aes(label = SYMBOL),
@@ -447,7 +588,7 @@ ggsave(file.path(plot_dir, "volcano_main.png"), volc, width = 8, height = 6, dpi
 if (exists("tt_all_s") && exists("deg_sens")) {
   volc_s <- within(tt_all_s, {
     negLog10FDR <- -log10(adj.P.Val)
-    sig <- adj.P.Val < 0.1
+    sig <- adj.P.Val < FDR_THRESH
     dir <- ifelse(sig & logFC > 0, "Up",
                   ifelse(sig & logFC < 0, "Down", "NS"))
   })
@@ -456,8 +597,8 @@ if (exists("tt_all_s") && exists("deg_sens")) {
   
   p_s <- ggplot(volc_s, aes(x = logFC, y = negLog10FDR)) +
     geom_point(aes(shape = dir), alpha = 0.6) +
-    geom_hline(yintercept = -log10(0.05), linetype = 2) +
-    geom_vline(xintercept = c(-1, 1), linetype = 3) +
+    geom_hline(yintercept = -log10(FDR_THRESH), linetype = 2) +
+    geom_vline(xintercept = c(-LOGFC_THRESH, LOGFC_THRESH), linetype = 3) +
     ggrepel::geom_text_repel(
       data = lab_s,
       aes(label = SYMBOL),
@@ -469,30 +610,74 @@ if (exists("tt_all_s") && exists("deg_sens")) {
   ggsave(file.path(plot_dir, "volcano_noMELAS_main.png"), p_s, width = 8, height = 6, dpi = 300)
 }
 
-stopifnot(exists("tt_gene"), exists("deg"))
-if (nrow(deg) == 0) stop("No DEGs detected; adjust thresholds.")
+#stopifnot(exists("tt_gene"), exists("deg"))
+#if (nrow(deg) == 0) stop("No DEGs detected; adjust thresholds.")
 expr_plot <- if (exists("expr_use")) expr_use else if (exists("expr_cb")) expr_cb else expr_f  # batch/SVA sonrası
 
+#TOP_N <- min(50, nrow(deg))
+#if (TOP_N >= 1)
+  
+#  top_syms <- head(deg$SYMBOL[order(deg$adj.P.Val)], TOP_N)
+  
+#  reps <- rownames(tt_gene)[match(top_syms, tt_gene$SYMBOL)]
+#  reps <- reps[!is.na(reps)]
+  
+#  sub_expr <- expr_plot[intersect(rownames(expr_plot), reps), , drop = FALSE]
+#  
+#  rownames(sub_expr) <- tt_gene$SYMBOL[match(rownames(sub_expr), rownames(tt_gene))]
+
+
+# --- Güvenli TOP-N alt kümesi ve alt ifade matrisi ---
+stopifnot(exists("tt_gene"), exists("deg"))
+stopifnot(nrow(deg) > 0)
+
+expr_plot <- if (exists("expr_use")) expr_use else if (exists("expr_cb")) expr_cb else expr_f
+
 TOP_N <- min(50, nrow(deg))
-if (TOP_N >= 1) {
+stopifnot(TOP_N >= 1)
+
+# SYMBOL alanlarını factor değil character olarak kullan
+tt_gene$SYMBOL <- as.character(tt_gene$SYMBOL)
+deg$SYMBOL     <- as.character(deg$SYMBOL)
+
+top_syms <- head(deg$SYMBOL[order(deg$adj.P.Val)], TOP_N)
+
+reps <- rownames(tt_gene)[ match(top_syms, tt_gene$SYMBOL) ]
+reps <- unique(reps[!is.na(reps)])
+
+sub_expr <- expr_plot[ intersect(rownames(expr_plot), reps), , drop = FALSE ]
+stopifnot(nrow(sub_expr) > 0)   # mantıksal test
+
+# (Opsiyonel) satır adlarını SYMBOL ile değiştir
+rownames(sub_expr) <- tt_gene$SYMBOL[ match(rownames(sub_expr), rownames(tt_gene)) ]
+# --- /Güvenli blok ---
+
   
-  top_syms <- head(deg$SYMBOL[order(deg$adj.P.Val)], TOP_N)
-  
-  reps <- rownames(tt_gene)[match(top_syms, tt_gene$SYMBOL)]
-  reps <- reps[!is.na(reps)]
-  
-  sub_expr <- expr_plot[intersect(rownames(expr_plot), reps), , drop = FALSE]
-  
-  rownames(sub_expr) <- tt_gene$SYMBOL[match(rownames(sub_expr), rownames(tt_gene))]
-  
-  ann_col <- data.frame(Group = pheno_aligned$group, row.names = rownames(pheno_aligned))
-  if ("batch" %in% names(pheno_aligned))   ann_col$Batch  <- pheno_aligned$batch
-  if ("is_melas" %in% names(pheno_aligned)) ann_col$MELAS <- ifelse(pheno_aligned$is_melas, "Yes","No")
-  
-  ord <- order(ann_col$Group, ann_col$Batch, na.last = TRUE)
-  ann_col <- ann_col[ord, , drop = FALSE]
-  sub_expr <- sub_expr[, rownames(ann_col), drop = FALSE]
-  
+ann_col <- data.frame(Group = pheno_aligned$group,
+                      row.names = rownames(pheno_aligned))
+if ("batch" %in% names(pheno_aligned))
+  ann_col$Batch <- pheno_aligned$batch
+
+# <<< BURAYA YAPIŞTIR >>>
+if ("is_melas" %in% names(pheno_aligned)) {
+  melas_raw <- pheno_aligned$is_melas
+  melas_log <- if (is.logical(melas_raw)) {
+    melas_raw
+  } else {
+    v <- tolower(trimws(as.character(melas_raw)))
+    v %in% c("1","true","t","yes","y")
+  }
+  melas_log[is.na(melas_log)] <- FALSE  # boşları "No" say
+  ann_col$MELAS <- ifelse(melas_log, "Yes", "No")
+}
+# <<< /BURAYA YAPIŞTIR >>>
+
+ord <- order(ann_col$Group, ann_col$Batch, na.last = TRUE)
+ann_col <- ann_col[ord, , drop = FALSE]
+sub_expr <- sub_expr[, rownames(ann_col), drop = FALSE]
+
+
+if (TOP_N >= 1) {  
   sub_expr_z <- t(scale(t(sub_expr)))  # satır bazlı z-score
   
   if (nrow(sub_expr_z) >= 2) {
@@ -503,21 +688,24 @@ if (TOP_N >= 1) {
                              clustering_distance_cols = "correlation",
                              clustering_method = "average",
                              main = sprintf("Top %d DEG (z-score by gene) – Pompe vs Control", nrow(sub_expr_z)),
-                       filename = file.path(plot_dir, "heatmap_top_FDR_main.png")
+                       filename = file.path(plot_dir, sprintf("heatmap_top_FDR%s_main.png", FDR_THRESH))
     )
+    
   } else if (nrow(sub_expr_z) == 1) {
     ph <- pheatmap::pheatmap(sub_expr_z,
                              annotation_col = ann_col,
                              show_rownames = TRUE, show_colnames = TRUE,
                              cluster_rows = FALSE, cluster_cols = TRUE,
                              main = "Only 1 gene passed filter (no row clustering)",
-                       filename = file.path(plot_dir, "heatmap_top_FDR_main.png")
+                       filename = file.path(plot_dir, sprintf("heatmap_top_FDR%s_main.png", FDR_THRESH))
     )
+    
   } else {
     message("Heatmap atlandı: seçilen genlerden hiçbiri ifade matrisinde bulunamadı (probe vs gene adı?).")
   }
+  
 } else {
-  message("Heatmap atlandı: FDR<0.05 ile yeterli gen yok.")
+  message(sprintf("Heatmap atlandı: FDR<%s ile yeterli gen yok.", FDR_THRESH))
 }
 
 
@@ -553,7 +741,7 @@ message("Plots written to: ", plot_dir)
 
 # ========================= HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH=========================
 
-  gsea_dir <- file.path(root_dir, "results", "deg")
+gsea_dir <- file.path(root_dir, "results", "deg")
 dir.create(gsea_dir, showWarnings = FALSE, recursive = TRUE)
 
 set.seed(1234)
@@ -568,16 +756,21 @@ if (length(ranks) < 50) {
   warning("GSEA için yeterli sayıda gen yok gibi (rank < 50). Sonuçlar güvenilmez olabilir.")
 }
 
-msig <- try(msigdbr(species = "Homo sapiens", category = "C5", subcategory = "GO:BP"), silent=TRUE)
+msig <- msigdbr(species = "Homo sapiens", collection = "C5", subcollection = "GO:BP")
+#msig <- try(msigdbr(species = "Homo sapiens", category = "C5", subcategory = "GO:BP"), silent=TRUE)
 if (inherits(msig, "try-error") || nrow(msig)==0) {
   msig <- msigdbr(species = "Homo sapiens", collection = "C5", subcollection = "GO:BP")
 }
 term2gene <- unique(msig[, c("gs_name","gene_symbol")])
 
-gsea_go <- GSEA(geneList = ranks,
-                TERM2GENE = term2gene,
-                pvalueCutoff = 0.1,
-                verbose = FALSE)
+term2gene <- unique(msig[, c("gs_name","gene_symbol")])
+gsea_go <- GSEA(geneList = ranks, TERM2GENE = term2gene,
+                pvalueCutoff = FDR_THRESH, verbose = FALSE)
+
+#gsea_go <- GSEA(geneList = ranks,
+                #TERM2GENE = term2gene,
+               # pvalueCutoff = FDR_THRESH,
+                #verbose = FALSE)
 
 write.csv(as.data.frame(gsea_go),
           file.path(gsea_dir, "GSEA_GO_BP_msigdb.csv"), row.names = FALSE)
@@ -597,15 +790,43 @@ if (nrow(as.data.frame(gsea_go)) > 0) {
   }
 }
 
+#sym2ent <- AnnotationDbi::select(org.Hs.eg.db,
+ #                                keys = unique(names(ranks)),
+  #                               keytype = "SYMBOL",
+  #                               columns = "ENTREZID")
+#sym2ent <- sym2ent[!is.na(sym2ent$ENTREZID) & nzchar(sym2ent$SYMBOL), ]
+
+#ranks_kegg <- ranks[names(ranks) %in% sym2ent$SYMBOL]
+#names(ranks_kegg) <- sym2ent$ENTREZID[match(names(ranks_kegg), sym2ent$SYMBOL)]
+#ranks_kegg <- sort(ranks_kegg, decreasing = TRUE)
+
+
+
+# SYMBOL -> ENTREZ tablosu
 sym2ent <- AnnotationDbi::select(org.Hs.eg.db,
                                  keys = unique(names(ranks)),
                                  keytype = "SYMBOL",
                                  columns = "ENTREZID")
+
+# Geçersizleri at
 sym2ent <- sym2ent[!is.na(sym2ent$ENTREZID) & nzchar(sym2ent$SYMBOL), ]
 
-ranks_kegg <- ranks[names(ranks) %in% sym2ent$SYMBOL]
-names(ranks_kegg) <- sym2ent$ENTREZID[match(names(ranks_kegg), sym2ent$SYMBOL)]
+# |rank| büyük olana öncelik ver
+sym2ent$abs_rank <- abs(ranks[sym2ent$SYMBOL])
+sym2ent <- sym2ent[order(sym2ent$abs_rank, decreasing = TRUE), ]
+
+# Her SYMBOL için tek satır bırak
+sym2ent_1to1 <- sym2ent[!duplicated(sym2ent$SYMBOL), c("SYMBOL","ENTREZID")]
+
+# Rank listesini ENTREZ kimliklerine çevir ve yine tekilleştir
+ranks_kegg <- ranks[sym2ent_1to1$SYMBOL]
+names(ranks_kegg) <- sym2ent_1to1$ENTREZID
+ranks_kegg <- ranks_kegg[!duplicated(names(ranks_kegg))]
 ranks_kegg <- sort(ranks_kegg, decreasing = TRUE)
+
+
+
+
 
 if (length(ranks_kegg) >= 50) {
   gsea_kegg <- gseKEGG(geneList = ranks_kegg,
@@ -632,7 +853,7 @@ if (exists("tt_gene_s")) {
   
   if (length(ranks_s) >= 50) {
     gsea_go_s <- GSEA(geneList = ranks_s, TERM2GENE = term2gene,
-                      pvalueCutoff = 0.1, verbose = FALSE)
+                      pvalueCutoff = FDR_THRESH, verbose = FALSE)
     write.csv(as.data.frame(gsea_go_s),
               file.path(gsea_dir, "GSEA_GO_BP_msigdb_noMELAS.csv"), row.names = FALSE)
     
@@ -645,7 +866,7 @@ if (exists("tt_gene_s")) {
 }
 
 if (exists("ph")) {
-    pdf(file.path(root_dir,"results","plots","volcano_heatmap_Fig1.pdf"), width=16, height=8, family="Times")
+  pdf(file.path(root_dir,"results","plots","volcano_heatmap_Fig1.pdf"), width=16, height=8, family="Times")
   grid.arrange(
     arrangeGrob(volc, top = textGrob("A", gp=gpar(fontsize=22, fontface="bold"), x=unit(0,"npc"), hjust=0)),
     arrangeGrob(ph$gtable, top = textGrob("B", gp=gpar(fontsize=22, fontface="bold"), x=unit(0,"npc"), hjust=0)),
@@ -654,12 +875,13 @@ if (exists("ph")) {
   dev.off()
 }
 
-# ======================= ENRICHMENT: GO / KEGG / GSEA + MELAS =======================
-# Ön-koşullar: root_dir, tt_all, tt_gene, deg, groups, expr_cb/expr_matrix
+  # ======================= ENRICHMENT: GO / KEGG / GSEA + MELAS =======================
+  # Ön-koşullar: root_dir, tt_all, tt_gene, deg, groups, expr_cb/expr_matrix
 
+# Perform functional enrichment analysis (GO, KEGG, and GSEA)
 ## 0) Klasörler
-  enrich_dir <- file.path(root_dir, "results", "enrichment"); dir.create(enrich_dir, recursive = TRUE, showWarnings = FALSE)
-  plot_dir   <- file.path(root_dir, "results", "plots");       dir.create(plot_dir,   recursive = TRUE, showWarnings = FALSE)
+enrich_dir <- file.path(root_dir, "results", "enrichment"); dir.create(enrich_dir, recursive = TRUE, showWarnings = FALSE)
+plot_dir   <- file.path(root_dir, "results", "plots");       dir.create(plot_dir,   recursive = TRUE, showWarnings = FALSE)
 
 ## 1) Girdi listeleri (main analiz)
 stopifnot(exists("tt_gene"), exists("deg"))
@@ -681,18 +903,18 @@ entrez_sig      <- unique(na.omit(sig2entrez$ENTREZID))
 meta <- list(time=as.character(Sys.time()),
              n_sig_genes=length(sig_symbols), n_universe_genes=length(universe_symbols),
              n_sig_entrez=length(entrez_sig), n_universe_entrez=length(entrez_universe),
-             adjust_method="BH", pvalueCutoff=0.1, qvalueCutoff=0.1)
+             adjust_method="BH", pvalueCutoff=FDR_THRESH, qvalueCutoff=FDR_THRESH)
 writeLines(jsonlite::toJSON(meta, pretty=TRUE), file.path(enrich_dir, "_params_enrichment_main.json"))
 
 ## 4) GO: BP (SYMBOL + explicit universe)
 go_bp <- enrichGO(gene = sig_symbols, OrgDb = org.Hs.eg.db, keyType = "SYMBOL",
                   ont = "BP", universe = universe_symbols,
-                  pAdjustMethod = "BH", pvalueCutoff = 0.1, qvalueCutoff = 0.1,
+                  pAdjustMethod = "BH", pvalueCutoff = FDR_THRESH, qvalueCutoff = FDR_THRESH,
                   readable = TRUE)
 write.csv(as.data.frame(go_bp), file.path(enrich_dir,"GO_BP_main.csv"), row.names = FALSE)
 
 ## 5) KEGG (ENTREZ) – bazı sürümlerde universe parametresi yok → koşullu ekle
-ek_args <- list(gene = entrez_sig, organism = "hsa", pAdjustMethod = "BH", pvalueCutoff = 0.1)
+ek_args <- list(gene = entrez_sig, organism = "hsa", pAdjustMethod = "BH", pvalueCutoff = FDR_THRESH)
 if ("universe" %in% names(formals(clusterProfiler::enrichKEGG))) ek_args$universe <- entrez_universe
 kegg <- do.call(clusterProfiler::enrichKEGG, ek_args)
 write.csv(as.data.frame(kegg), file.path(enrich_dir,"KEGG_main.csv"), row.names = FALSE)
@@ -753,10 +975,10 @@ enrich_melas <- function(deg_tbl, tag) {
   
   go <- enrichGO(gene=sig_syms, OrgDb=org.Hs.eg.db, keyType="SYMBOL",
                  ont="BP", universe=universe_symbols,
-                 pAdjustMethod="BH", pvalueCutoff=0.1, qvalueCutoff=0.1, readable=TRUE)
+                 pAdjustMethod="BH", pvalueCutoff=FDR_THRESH, qvalueCutoff=FDR_THRESH, readable=TRUE)
   write.csv(as.data.frame(go), file.path(enrich_dir, paste0("GO_BP_",tag,".csv")), row.names=FALSE)
   
-  ek_args <- list(gene=sig_ent, organism="hsa", pAdjustMethod="BH", pvalueCutoff=0.1)
+  ek_args <- list(gene=sig_ent, organism="hsa", pAdjustMethod="BH", pvalueCutoff=FDR_THRESH)
   if ("universe" %in% names(formals(clusterProfiler::enrichKEGG))) ek_args$universe <- entrez_universe
   kk <- do.call(clusterProfiler::enrichKEGG, ek_args)
   write.csv(as.data.frame(kk), file.path(enrich_dir, paste0("KEGG_",tag,".csv")), row.names=FALSE)
@@ -774,29 +996,91 @@ enrich_melas <- function(deg_tbl, tag) {
 
 if (exists("deg_sens")) {
   invisible(enrich_melas(deg_sens, "noMELAS"))
-} else if (exists("pheno_aligned") && "is_melas" %in% names(pheno_aligned) && any(pheno_aligned$is_melas)) {
-  # MELAS'lar hariç yeni DEG üret (ana ayarlarla tutarlı)
-  keep_idx <- which(!pheno_aligned$is_melas)
+  
+  
+  # --- MELAS bayrağını güvenli biçimde üret ---
+  has_melas_col <- "is_melas" %in% names(pheno_aligned)
+  melas_log <- if (has_melas_col) {
+    x <- pheno_aligned$is_melas
+    if (is.logical(x)) x else {
+      v <- tolower(trimws(as.character(x)))
+      v %in% c("1","true","t","yes","y")
+    }
+  } else rep(FALSE, nrow(pheno_aligned))
+  
+  
+} else if (exists("pheno_aligned") && any(melas_log, na.rm = TRUE)) {
+
+#} else if (exists("pheno_aligned") && "is_melas" %in% names(pheno_aligned) && any(pheno_aligned$is_melas)) {
+ 
+   # MELAS'lar hariç yeni DEG üret (ana ayarlarla tutarlı)
+  
+#  keep_idx <- which(!melas_log)  # MELAS örneklerini dışla
+  
+#  ph_s$group <- droplevels(ph_s$group)
+  
+  #if (nlevels(ph_s$group) < 2) {
+  #  message("MELAS hariç altkümede tek grup kaldı; Pompe-Control karşılaştırması atlandı.")
+  #} else {
+  #  design_s <- model.matrix(~ 0 + group, data = ph_s)
+   # colnames(design_s) <- gsub("^group", "", colnames(design_s)) # "Control","Pompe"
+    
+  #  fit_s  <- limma::lmFit(expr_s, design_s)
+   # cont_s <- limma::makeContrasts(Pompe - Control, levels = design_s)
+  #  fit2_s <- limma::eBayes(limma::contrasts.fit(fit_s, cont_s))
+    
+    # ... (tt_all_s, tt_gene_s, deg_s, yazdırma vb.)
+  #}
+  
+  
+  ## Veri: ifade matrisi (ComBat/SVA sonrası hangisi varsa)
+  expr_base <- if (exists("expr_use")) expr_use else expr_cb
+  
+  ## MELAS’sız altküme
+  keep <- !melas_log
+  expr_s <- expr_base[, keep, drop = FALSE]
+  ph_s   <- droplevels(pheno_aligned[keep, , drop = FALSE])
+  
+  ## Grup yeterli mi?
+  if (nlevels(ph_s$group) >= 2 && all(table(ph_s$group) > 0)) {
+    design_s <- model.matrix(~ 0 + group, data = ph_s)
+    colnames(design_s) <- gsub("^group", "", colnames(design_s))  # "Control","Pompe"
+    
+    fit_s  <- limma::lmFit(expr_s, design_s)
+    cont_s <- limma::makeContrasts(Pompe - Control, levels = design_s)
+    fit2_s <- limma::eBayes(limma::contrasts.fit(fit_s, cont_s))
+    
+    tt_all_s <- limma::topTable(fit2_s, coef = 1, number = Inf, adjust.method = "BH")
+  
+  
+  #keep_idx <- which(!pheno_aligned$is_melas)
   expr_s   <- expr_cb[, keep_idx, drop=FALSE]
   ph_s     <- droplevels(pheno_aligned[keep_idx, ])
   design_s <- model.matrix(~ 0 + group, data = ph_s); colnames(design_s) <- levels(ph_s$group)
   fit_s2   <- limma::eBayes(limma::contrasts.fit(limma::lmFit(expr_s, design_s),
                                                  limma::makeContrasts(Pompe - Control, levels = design_s)))
-  tt_all_s <- limma::topTable(fit_s2, coef=1, number=Inf, adjust.method="BH")
+
   # gene-level tekilleştirme
   tt_all_s$abs_logFC <- abs(tt_all_s$logFC)
   tt_gene_s <- tt_all_s[!is.na(tt_all_s$SYMBOL) & nzchar(tt_all_s$SYMBOL), ]
   tt_gene_s <- tt_gene_s[order(tt_gene_s$SYMBOL, -tt_gene_s$abs_logFC), ]
   tt_gene_s <- tt_gene_s[!duplicated(tt_gene_s$SYMBOL), ]
-  deg_sens  <- subset(tt_gene_s, adj.P.Val < 0.1)
-  write.csv(deg_sens, file.path(enrich_dir,"DEG_noMELAS_FDR_lt_0.1.csv"), row.names=FALSE)
+  deg_sens  <- subset(tt_gene_s, adj.P.Val < FDR_THRESH)
+  write.csv(deg_sens,
+            file.path(enrich_dir,
+                      sprintf("DEG_noMELAS_FDR_lt_%s.csv", FDR_THRESH)),
+            row.names=FALSE)
   invisible(enrich_melas(deg_sens, "noMELAS"))
+  
+} else {
+  message("MELAS hariçte iki grup kalmadı; Pompe-Control karşılaştırması atlandı.")
+  tt_all_s <- NULL
+  deg_sens <- NULL
 }
-
 ## 9) Kısa özet
 sum_lines <- c(
-  sprintf("Main GO terms (q<0.1): %d", ifelse(is.null(go_bp), 0, nrow(as.data.frame(go_bp)))),
-  sprintf("Main KEGG pathways (q<0.1): %d", ifelse(is.null(kegg), 0, nrow(as.data.frame(kegg)))),
+  sprintf("Main GO terms (q<%s): %d", FDR_THRESH, ifelse(is.null(go_bp), 0, nrow(as.data.frame(go_bp)))),
+  sprintf("Main KEGG pathways (q<%s): %d", FDR_THRESH, ifelse(is.null(kegg), 0, nrow(as.data.frame(kegg)))),
   sprintf("Universe size: SYMBOL=%d | ENTREZ=%d", length(universe_symbols), length(entrez_universe)),
   "Notes: BH correction everywhere; GO uses explicit universe (all tested gene-level).",
   "Sensitivity: If MELAS present, enrichment repeated without MELAS; GSEA added to reduce threshold dependence."
@@ -804,14 +1088,14 @@ sum_lines <- c(
 writeLines(sum_lines, file.path(enrich_dir,"_ENRICHMENT_SUMMARY.txt"))
 
 # ==================== miRNA Target Enrichment (FAIR, offline) ====================
-# Koşullar: tt_gene (gene-level tablo) ve deg (FDR<0.1) mevcut olmalı
+# Koşullar: tt_gene (gene-level tablo) ve deg (FDR < FDR_THRESH) mevcut olmalı
 # Kullanılan nesneler: tt_gene, deg, pheno_aligned (MELAS için), groups
 # Çıktılar: results/miRNA_analysis/ altına CSV/PNG/JSON/TXT
 
 # ---- Paketler (loaded above)
 
 # ---- Klasörler + meta
-  out_dir  <- file.path(root_dir, "results", "miRNA_analysis")
+out_dir  <- file.path(root_dir, "results", "miRNA_analysis")
 dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 set.seed(20240724)
 
@@ -823,13 +1107,14 @@ universe_symbols <- unique(tt_gene$SYMBOL[!is.na(tt_gene$SYMBOL) & nzchar(tt_gen
 sig_genes        <- unique(deg$SYMBOL[!is.na(deg$SYMBOL) & nzchar(deg$SYMBOL)])
 
 meta <- list(
-  dataset              = "GSE38680",
-  n_control            = if (exists("groups")) sum(groups=="Control") else NA_integer_,
-  n_pompe              = if (exists("groups")) sum(groups=="Pompe") else NA_integer_,
-  n_universe_genes     = length(universe_symbols),
-  n_sig_genes_FDR_lt05 = length(sig_genes),
-  adjust_method        = "BH",
-  note_small_n         = "Small sample size; interpret enrichment cautiously."
+  dataset          = "GSE38680",
+  n_control        = if (exists("groups")) sum(groups=="Control") else NA_integer_,
+  n_pompe          = if (exists("groups")) sum(groups=="Pompe") else NA_integer_,
+  n_universe_genes = length(universe_symbols),
+  n_sig_genes      = length(sig_genes),
+  fdr_threshold    = FDR_THRESH,
+  adjust_method    = "BH",
+  note_small_n     = "Small sample size; interpret enrichment cautiously."
 )
 jsonlite::write_json(meta, file.path(out_dir, "_mirna_meta.json"), pretty = TRUE)
 
@@ -952,7 +1237,7 @@ if (exists("pheno_aligned") && (("is_melas" %in% names(pheno_aligned)) || ("spec
           tt_sg <- tt_s[!is.na(tt_s$SYMBOL) & nzchar(tt_s$SYMBOL), ]
           tt_sg <- tt_sg[order(tt_sg$SYMBOL, -tt_sg$abs_logFC), ]
           tt_sg <- tt_sg[!duplicated(tt_sg$SYMBOL), ]
-          sig_genes_s <- unique(tt_sg$SYMBOL[tt_sg$adj.P.Val < 0.1])
+          sig_genes_s <- unique(tt_sg$SYMBOL[tt_sg$adj.P.Val < FDR_THRESH])
         }
       }
     }
@@ -1009,26 +1294,26 @@ if (has_melas) {
     tt_gene_s <- tt_all_s[!is.na(tt_all_s$SYMBOL) & nzchar(tt_all_s$SYMBOL), ]
     tt_gene_s <- tt_gene_s[order(tt_gene_s$SYMBOL, -tt_gene_s$abs_logFC), ]
     tt_gene_s <- tt_gene_s[!duplicated(tt_gene_s$SYMBOL), ]
-    deg_sens  <- subset(tt_gene_s, adj.P.Val < 0.1)
+    deg_sens  <- subset(tt_gene_s, adj.P.Val < FDR_THRESH)
     
     # Volcano (no‑MELAS)
     volc_sens <- ggplot(tt_gene_s, aes(logFC, -log10(adj.P.Val))) +
-      geom_point(aes(color = adj.P.Val < 0.1), alpha = 0.75, size = 1.6) +
-      geom_vline(xintercept = c(-1, 1), lty = "dashed", color = "grey50") +
-      geom_hline(yintercept = -log10(0.05), lty = "dashed", color = "grey50") +
+      geom_point(aes(color = adj.P.Val < FDR_THRESH), alpha = 0.75, size = 1.6) +
+      geom_vline(xintercept = c(-LOGFC_THRESH, LOGFC_THRESH), lty = "dashed", color = "grey50") +
+      geom_hline(yintercept = -log10(FDR_THRESH), lty = "dashed", color = "grey50") +
       scale_color_manual(values = c("grey70","steelblue")) +
       labs(title = "Volcano (No‑MELAS; BH‑FDR; gene‑level)",
            x = expression(log[2]*"FC"), y = expression(-log[10]*"FDR"), color = NULL) +
       theme_bw(base_size = 12)
     
-    ggsave(file.path(plots_dir, "volcano_FDR_geneLevel_noMELAS.png"),
+    ggsave(file.path(plots_dir, sprintf("volcano_FDR%s_geneLevel_noMELAS.png", FDR_THRESH)),
            volc_sens, width = 8, height = 6, dpi = 300)
     
     # Kesişim özeti
     ov   <- length(intersect(deg$SYMBOL, deg_sens$SYMBOL))
     msg  <- sprintf("MELAS dahil DEG: %d | MELAS hariç DEG: %d | ortak: %d",
                     nrow(deg), nrow(deg_sens), ov)
-      writeLines(msg, file.path(root_dir,"results","deg","MELAS_sensitivity_summary.txt"))
+    writeLines(msg, file.path(root_dir,"results","deg","MELAS_sensitivity_summary.txt"))
     message("[MELAS] ", msg)
   } else {
     message("[MELAS] Hariç sonrası örnek sayısı çok az; duyarlılık görselleri atlandı.")
@@ -1039,14 +1324,14 @@ if (has_melas) {
 
 ## Packages loaded above
 
-  mir_dir <- file.path(root_dir, "results", "miRNA_analysis")
+mir_dir <- file.path(root_dir, "results", "miRNA_analysis")
 dir.create(mir_dir, recursive = TRUE, showWarnings = FALSE)
 
 # Küçük n hatırlatması
 writeLines("WARNING: small sample size (9 Pompe vs 10 Control). Interpret with caution.",
            file.path(mir_dir, "_NOTE_small_n.txt"))
 
-# Hedef gen listesi: ana DEG (gene-level; FDR<0.1) sembollerinden ilk 50 (varsa)
+# Hedef gen listesi: ana DEG (gene-level; FDR < FDR_THRESH) sembollerinden ilk 50 (varsa)
 sig_syms <- if (exists("deg")) head(unique(deg$SYMBOL), 50) else character(0)
 if (length(sig_syms) < 2) {
   message("[miRNA] Yeterli anlamlı gen yok; multiMiR adımları atlandı.")
